@@ -179,6 +179,40 @@ export function truncateDiscussion(
   return result;
 }
 
+/**
+ * Count how many older comments would be omitted by prompt truncation.
+ * Uses the same budget and ordering as `truncateDiscussion`.
+ */
+export function countTruncatedComments(
+  context: IssueContext,
+  maxChars: number = MAX_CONTENT_CHARS,
+): number {
+  const header =
+    `## Issue: ${context.title}\n\n` +
+    `### Original Description\n${context.body || "(No description provided)"}\n\n`;
+
+  const headerLen = header.length + 200;
+  const availableForComments = maxChars - headerLen;
+  if (availableForComments <= 0) {
+    return context.comments.length;
+  }
+
+  let usedChars = 0;
+  for (let i = context.comments.length - 1; i >= 0; i--) {
+    const comment = context.comments[i];
+    const authorLabel = formatAuthorLabel(comment.author, context.author, comment.reactions);
+    const commentText = `${authorLabel} (${comment.createdAt}):\n${comment.body}\n\n---\n\n`;
+
+    if (usedChars + commentText.length <= availableForComments) {
+      usedChars += commentText.length;
+      continue;
+    }
+    return i + 1;
+  }
+
+  return 0;
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Minimal Plan Factory
 // ───────────────────────────────────────────────────────────────────────────────

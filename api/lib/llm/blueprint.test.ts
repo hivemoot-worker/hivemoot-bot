@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { BlueprintGenerator, buildBlueprintUserPrompt, truncateDiscussion } from "./blueprint.js";
+import { BlueprintGenerator, buildBlueprintUserPrompt, countTruncatedComments, truncateDiscussion } from "./blueprint.js";
 import type { ImplementationPlan, IssueContext } from "./types.js";
 import type { Logger } from "../logger.js";
 
@@ -620,5 +620,30 @@ describe("truncateDiscussion", () => {
     const result = truncateDiscussion("Test", "", "alice", comments, 10_000);
 
     expect(result).toContain("(No description provided)");
+  });
+});
+
+describe("countTruncatedComments", () => {
+  const baseContext: IssueContext = {
+    title: "Test",
+    body: "Body",
+    author: "alice",
+    comments: [
+      { author: "alice", body: "First comment", createdAt: "2024-01-01T00:00:00Z" },
+      { author: "bob", body: "Second comment", createdAt: "2024-01-02T00:00:00Z" },
+      { author: "carol", body: "Third comment", createdAt: "2024-01-03T00:00:00Z" },
+    ],
+  };
+
+  it("returns 0 when all comments fit", () => {
+    expect(countTruncatedComments(baseContext, 10_000)).toBe(0);
+  });
+
+  it("returns number of skipped older comments when truncated", () => {
+    expect(countTruncatedComments(baseContext, 350)).toBeGreaterThan(0);
+  });
+
+  it("returns all comments when there is no room for discussion content", () => {
+    expect(countTruncatedComments(baseContext, 10)).toBe(baseContext.comments.length);
   });
 });

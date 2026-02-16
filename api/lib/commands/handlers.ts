@@ -9,7 +9,7 @@
 import { LABELS, SIGNATURE, isLabelMatch } from "../../config.js";
 import { SIGNATURES, buildAlignmentComment } from "../bot-comments.js";
 import { createIssueOperations, createGovernanceService, createPROperations, loadRepositoryConfig } from "../index.js";
-import { BlueprintGenerator, createMinimalPlan } from "../llm/blueprint.js";
+import { BlueprintGenerator, countTruncatedComments, createMinimalPlan } from "../llm/blueprint.js";
 import type { ImplementationPlan, IssueContext } from "../llm/types.js";
 import { evaluatePreflightChecks } from "../merge-readiness.js";
 import type { PreflightCheckItem } from "../merge-readiness.js";
@@ -321,6 +321,7 @@ function pushBlueprintSection(lines: string[], title: string, items: string[]): 
 function buildBlueprintContent(
   plan: ImplementationPlan,
   senderLogin: string,
+  truncatedCount = 0,
 ): string {
   const lines: string[] = [];
   const goal = plan.goal?.trim() || "Discussion is gathering signal. Run `/gather` again after more input.";
@@ -352,6 +353,9 @@ function buildBlueprintContent(
   metaParts.push(`${plan.metadata.commentCount} comments`);
   if (plan.metadata.participantCount > 0) {
     metaParts.push(`${plan.metadata.participantCount} participants`);
+  }
+  if (truncatedCount > 0) {
+    metaParts.push(`${truncatedCount} truncated for context`);
   }
   metaParts.push(formatBlueprintTimestamp());
   metaParts.push(`@${senderLogin} via \`/gather\``);
@@ -389,11 +393,12 @@ async function handleGather(ctx: CommandContext): Promise<CommandResult> {
   let blueprintContent: string;
   try {
     const context = await issues.getIssueContext(ref);
+    const truncatedCount = countTruncatedComments(context);
     const generator = new BlueprintGenerator();
     const result = await generator.generate(context);
 
     if (result.success) {
-      blueprintContent = buildBlueprintContent(result.plan, ctx.senderLogin);
+      blueprintContent = buildBlueprintContent(result.plan, ctx.senderLogin, truncatedCount);
     } else {
       ctx.log.warn(`Using fallback blueprint for #${ctx.issueNumber}: ${result.reason}`);
       blueprintContent = buildFallbackBlueprintContent(context, ctx.senderLogin);

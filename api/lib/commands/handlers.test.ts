@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { executeCommand, type CommandContext } from "./handlers.js";
+import { countTruncatedComments } from "../llm/blueprint.js";
 import { LABELS } from "../../config.js";
 
 // Mock the governance/issue operations modules
@@ -410,6 +411,42 @@ describe("executeCommand", () => {
       expect(body).toContain("Use MDX format");
       expect(body).toContain("## Out of scope");
       expect(body).toContain("Video tutorials");
+    });
+
+    it("should include truncated count in footer when prompt drops older comments", async () => {
+      const huge = "x".repeat(45_000);
+      const context = {
+        title: "Large thread",
+        body: "Proposal body",
+        author: "queen",
+        comments: [
+          { author: "alice", body: huge, createdAt: "2026-02-16T00:00:00.000Z" },
+          { author: "bob", body: huge, createdAt: "2026-02-16T00:01:00.000Z" },
+          { author: "carol", body: huge, createdAt: "2026-02-16T00:02:00.000Z" },
+          { author: "dave", body: huge, createdAt: "2026-02-16T00:03:00.000Z" },
+        ],
+      };
+      const expectedTruncated = countTruncatedComments(context);
+      expect(expectedTruncated).toBeGreaterThan(0);
+
+      mockIssueOps.getIssueContext.mockResolvedValue(context);
+      mockBlueprintGenerate.mockResolvedValue({
+        success: true,
+        plan: {
+          goal: "Summarize large thread",
+          plan: "1. Implement",
+          decisions: [],
+          outOfScope: [],
+          openQuestions: [],
+          metadata: { commentCount: 4, participantCount: 4 },
+        },
+      });
+
+      const ctx = createCtx({ verb: "gather" });
+      await executeCommand(ctx);
+
+      const body = mockIssueOps.comment.mock.calls[0][1];
+      expect(body).toContain(`${expectedTruncated} truncated for context`);
     });
 
     it("should log reason when using fallback blueprint", async () => {
