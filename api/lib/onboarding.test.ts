@@ -152,6 +152,11 @@ describe("OnboardingService.createOnboardingPR", () => {
       head: ONBOARDING_BRANCH,
       base: "main",
     });
+    expect(mocks.pullsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("All phases default to manual progression."),
+      })
+    );
   });
 
   it("should use base64-encoded content for the config file", async () => {
@@ -160,7 +165,13 @@ describe("OnboardingService.createOnboardingPR", () => {
     const call = mocks.reposCreateOrUpdateFileContents.mock.calls[0][0] as { content: string };
     const decoded = Buffer.from(call.content, "base64").toString("utf-8");
     expect(decoded).toContain("version: 1");
+    expect(decoded).toContain("team:");
+    expect(decoded).toContain("roles:");
     expect(decoded).toContain("governance:");
+    expect(decoded).toContain("- type: manual");
+    expect(decoded).toContain("#   requires: majority");
+    expect(decoded).toContain("# pr:");
+    expect(decoded).not.toContain("will not automatically re-create this PR");
   });
 
   it("should handle branch-already-exists (422 on createRef) and continue", async () => {

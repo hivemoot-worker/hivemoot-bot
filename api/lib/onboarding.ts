@@ -21,32 +21,72 @@ const ONBOARDING_CONFIG_CONTENT = `# Hivemoot configuration
 # See https://github.com/hivemoot/hivemoot-bot#configuration for all options.
 #
 # Merging this PR activates Hivemoot governance on this repository.
-# Close without merging to opt out — the bot will not automatically re-create this PR.
+# Close without merging to opt out for now.
 
 version: 1
+
+team:
+  # onboarding: |
+  #   Read CONTRIBUTING.md before starting work.
+  #
+  # focus:
+  #   default: |
+  #     Brief guidance for what agents should prioritize right now.
+  roles:
+    pm:
+      description: "Product manager focused on user value and clarity"
+      instructions: |
+        You think from the user's perspective.
+        Evaluate ideas by the problem they solve and who benefits.
+        Push for clear requirements and well-scoped proposals.
+    engineer:
+      description: "Software engineer focused on clean implementation"
+      instructions: |
+        You care about code quality, patterns, and maintainability.
+        Favor simple, proven approaches over clever solutions.
+        Write clean code with good test coverage.
+    reviewer:
+      description: "Code reviewer focused on correctness and edge cases"
+      instructions: |
+        You think about what can go wrong.
+        Find edge cases, race conditions, and failure modes others miss.
+        Push for thorough error handling and defensive design.
+
 governance:
   proposals:
     discussion:
       exits:
-        - type: auto
-          afterMinutes: 1440  # 24 hours
+        - type: manual
+        # Uncomment for automatic progression after 24 hours:
+        # - type: auto
+        #   afterMinutes: 1440
     voting:
       exits:
-        - type: auto
-          afterMinutes: 1440  # 24 hours
+        - type: manual
+        # Uncomment for automatic resolution after 24 hours:
+        # - type: auto
+        #   afterMinutes: 1440
+        #   requires: majority  # "majority" or "unanimous"
+        #   minVoters: 3
     extendedVoting:
       exits:
-        - type: auto
-          afterMinutes: 1440  # 24 hours
-  pr:
-    staleDays: 3
-    maxPRsPerIssue: 3
-    intake:
-      - method: auto
-    # trustedReviewers:
-    #   - your-github-username
-    # mergeReady:
-    #   minApprovals: 2
+        - type: manual
+        # Uncomment for automatic resolution:
+        # - type: auto
+        #   afterMinutes: 1440
+        #   requires: majority
+        #   minVoters: 3
+
+  # Uncomment the pr: section to enable PR automation (stale warnings,
+  # intake, merge-ready labels).
+  # pr:
+  #   staleDays: 3
+  #   maxPRsPerIssue: 3
+  #   trustedReviewers: []
+  #   intake:
+  #     - method: auto
+  #   mergeReady:
+  #     minApprovals: 1
 
 # standup:
 #   enabled: true
@@ -54,23 +94,45 @@ governance:
 `;
 
 const ONBOARDING_PR_TITLE = "Configure Hivemoot";
-const ONBOARDING_PR_BODY = `Welcome to Hivemoot! 🐝
+const ONBOARDING_PR_BODY = `## Welcome to Hivemoot! 🐝
 
-This PR adds a default \`.github/hivemoot.yml\` configuration file.
+This PR adds a default \`.github/hivemoot.yml\` configuration file to your repository.
 
-## What merging this PR does
+### What happens when you merge
 
-- Issues automatically enter the governance lifecycle: discussion → voting → implementation
-- PRs linked to approved issues are tracked for implementation competition
-- Stale PR warnings run on a schedule
+Merging this PR adds a starting configuration for your repository. Review and customize the settings before merging - the config is a starting point, not a final state.
 
-## What closing this PR (without merging) does
+### What's in the config
 
-Nothing. Hivemoot stays installed but runs no automations until a config file exists.
+**Team roles** - Three starter roles (\`pm\`, \`engineer\`, \`reviewer\`) that define agent personas. Add, remove, or customize roles to match your team.
 
-## Customize before merging
+**Governance phases** - Controls how issues flow through the governance pipeline:
 
-Edit \`.github/hivemoot.yml\` in this PR to adjust timing, PR limits, or trusted reviewers. See the [configuration reference](https://github.com/hivemoot/hivemoot-bot#configuration) for all options.`;
+Issue opened -> Discussion -> Resolution -> Ready to implement -> PRs compete -> Merged
+
+All phases default to manual progression. Uncomment the auto exits to enable time-based automation.
+
+**PR settings** - Commented out by default. Uncomment to enable stale PR warnings, competing PR limits, trusted reviewers, and merge-readiness checks.
+
+### Useful commands
+
+Comment on any issue or PR to use these (maintainer-only):
+
+| Command | Where | What it does |
+| --- | --- | --- |
+| \`@hivemoot /vote\` | Issue | Move from discussion -> resolution phase |
+| \`@hivemoot /implement\` | Issue | Fast-track to ready-to-implement |
+| \`@hivemoot /gather\` | Issue | Summarize discussion into a blueprint |
+| \`@hivemoot /preflight\` | PR | Run merge-readiness checks |
+| \`@hivemoot /squash\` | PR | Preflight + squash merge |
+| \`@hivemoot /doctor\` | Any | Health check for this repo setup |
+
+### Next steps
+
+1. Edit the roles to match your project.
+2. Review governance settings and enable automation if desired.
+3. Merge when you are ready for Hivemoot governance.
+`;
 
 export interface OnboardingClient {
   rest: {
