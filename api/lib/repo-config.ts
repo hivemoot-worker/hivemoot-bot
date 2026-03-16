@@ -1288,7 +1288,14 @@ function parseRepoConfig(raw: unknown, repoFullName: string): EffectiveConfig {
     pr = {
       // Stale PR cleanup is opt-in per repo: omit staleDays to disable it.
       staleDays: hasOwnConfigKey(prConfigRaw, "staleDays")
-        ? parseIntValue(prConfigRaw?.staleDays, PR_STALE_DAYS_BOUNDS, "pr.staleDays", repoFullName)
+        ? (prConfigRaw?.staleDays === null
+            ? null
+            : parseIntValue(
+                prConfigRaw?.staleDays,
+                PR_STALE_DAYS_BOUNDS,
+                "pr.staleDays",
+                repoFullName
+              ))
         : null,
       maxPRsPerIssue: parseIntValue(prConfigRaw?.maxPRsPerIssue, MAX_PRS_PER_ISSUE_BOUNDS, "pr.maxPRsPerIssue", repoFullName),
       trustedReviewers,
