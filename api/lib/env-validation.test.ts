@@ -66,6 +66,12 @@ describe("env-validation", () => {
       process.env.APP_PRIVATE_KEY = "";
       expect(hasPrivateKey()).toBe(false);
     });
+
+    it("should return false for whitespace-only or empty quoted values", () => {
+      process.env.PRIVATE_KEY = "   ";
+      process.env.APP_PRIVATE_KEY = "  ''  ";
+      expect(hasPrivateKey()).toBe(false);
+    });
   });
 
   describe("getPrivateKey", () => {
@@ -99,6 +105,17 @@ describe("env-validation", () => {
       process.env.PRIVATE_KEY = "";
       process.env.APP_PRIVATE_KEY = "";
       expect(getPrivateKey()).toBeUndefined();
+    });
+
+    it("should normalize surrounding whitespace and quotes", () => {
+      process.env.PRIVATE_KEY = "  \"primary-key\"  ";
+      expect(getPrivateKey()).toBe("primary-key");
+    });
+
+    it("should fall back when PRIVATE_KEY normalizes to empty", () => {
+      process.env.PRIVATE_KEY = "  ''  ";
+      process.env.APP_PRIVATE_KEY = "  fallback-key  ";
+      expect(getPrivateKey()).toBe("fallback-key");
     });
   });
 
@@ -154,6 +171,16 @@ describe("env-validation", () => {
       expect(result.valid).toBe(true);
     });
 
+    it("should normalize quoted and padded GitHub App values", () => {
+      process.env.APP_ID = "  '12345'  ";
+      process.env.PRIVATE_KEY = "  \"test-key\"  ";
+      process.env.WEBHOOK_SECRET = "  'secret'  ";
+
+      const result = validateEnv(true);
+      expect(result.valid).toBe(true);
+      expect(result.missing).toEqual([]);
+    });
+
     it("should not require WEBHOOK_SECRET by default", () => {
       process.env.APP_ID = "12345";
       process.env.PRIVATE_KEY = "test-key";
@@ -163,6 +190,18 @@ describe("env-validation", () => {
     });
 
     it("should collect all missing vars", () => {
+      const result = validateEnv(true);
+      expect(result.valid).toBe(false);
+      expect(result.missing).toContain("APP_ID");
+      expect(result.missing).toContain("PRIVATE_KEY or APP_PRIVATE_KEY");
+      expect(result.missing).toContain("WEBHOOK_SECRET");
+    });
+
+    it("should reject whitespace-only and empty quoted values", () => {
+      process.env.APP_ID = "   ";
+      process.env.PRIVATE_KEY = "  ''  ";
+      process.env.WEBHOOK_SECRET = "  \"\"  ";
+
       const result = validateEnv(true);
       expect(result.valid).toBe(false);
       expect(result.missing).toContain("APP_ID");
@@ -199,6 +238,11 @@ describe("env-validation", () => {
     it("should accept large APP_IDs", () => {
       process.env.APP_ID = "999999999";
       expect(getAppId()).toBe(999999999);
+    });
+
+    it("should normalize quoted and padded APP_ID values", () => {
+      process.env.APP_ID = "  '12345'  ";
+      expect(getAppId()).toBe(12345);
     });
   });
 
@@ -289,6 +333,17 @@ describe("env-validation", () => {
 
       const config = getAppConfig();
       expect(config.privateKey).toBe(validPemKey);
+    });
+
+    it("should normalize quoted and padded GitHub App config values", () => {
+      process.env.APP_ID = "  '12345'  ";
+      process.env.PRIVATE_KEY = `  "${validPemKey}"  `;
+      process.env.WEBHOOK_SECRET = "  'secret123'  ";
+
+      const config = getAppConfig(true);
+      expect(config.appId).toBe(12345);
+      expect(config.privateKey).toBe(validPemKey);
+      expect(config.webhookSecret).toBe("secret123");
     });
   });
 });
