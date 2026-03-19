@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { logger } from "./logger.js";
 import {
   hasPrivateKey,
   getPrivateKey,
@@ -6,7 +7,9 @@ import {
   getAppId,
   validatePrivateKeyFormat,
   getAppConfig,
+  normalizeEnvString,
 } from "./env-validation.js";
+import { normalizeEnvString as llmNormalizeEnvString } from "./llm/env.js";
 
 /**
  * Tests for Environment Validation
@@ -37,7 +40,44 @@ describe("env-validation", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     process.env = originalEnv;
+  });
+
+  describe("normalizeEnvString", () => {
+    it("should return undefined for missing or empty values", () => {
+      expect(normalizeEnvString(undefined)).toBeUndefined();
+      expect(normalizeEnvString("   ")).toBeUndefined();
+      expect(normalizeEnvString("  ''  ")).toBeUndefined();
+      expect(normalizeEnvString("  \"\"  ")).toBeUndefined();
+    });
+
+    it("should trim whitespace and strip matching quotes", () => {
+      expect(normalizeEnvString("  plain  ")).toBe("plain");
+      expect(normalizeEnvString("  'quoted'  ")).toBe("quoted");
+      expect(normalizeEnvString("  \"quoted\"  ")).toBe("quoted");
+    });
+
+    it("should warn with an env prefix when a named value is normalized", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+      expect(normalizeEnvString("  '12345'  ", "APP_ID")).toBe("12345");
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[env] env var APP_ID was normalized (whitespace/quotes removed)"
+      );
+    });
+
+    it("should not warn when the value is unchanged or unnamed", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+      expect(normalizeEnvString("12345", "APP_ID")).toBe("12345");
+      expect(normalizeEnvString("  '12345'  ")).toBe("12345");
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("should be re-exported from the llm env module", () => {
+      expect(llmNormalizeEnvString).toBe(normalizeEnvString);
+    });
   });
 
   describe("hasPrivateKey", () => {

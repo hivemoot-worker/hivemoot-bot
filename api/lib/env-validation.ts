@@ -5,6 +5,8 @@
  * across webhooks and scheduled scripts.
  */
 
+import { logger } from "./logger.js";
+
 /**
  * Result of environment validation
  */
@@ -23,10 +25,13 @@ export interface AppConfig {
 }
 
 /**
- * Normalize GitHub App env values so hosted setups that inject surrounding
- * whitespace or matching quotes do not break bootstrap validation.
+ * Normalize environment variable values by trimming whitespace, stripping
+ * surrounding matching quotes, and treating empty results as unset.
+ *
+ * The optional `name` parameter emits a warning when normalization changes a
+ * configured value so operators can spot silently padded or quoted env vars.
  */
-function normalizeEnvString(value: string | undefined): string | undefined {
+export function normalizeEnvString(value: string | undefined, name?: string): string | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -43,11 +48,15 @@ function normalizeEnvString(value: string | undefined): string | undefined {
     normalized = normalized.slice(1, -1).trim();
   }
 
+  if (normalized !== value && name) {
+    logger.warn(`[env] env var ${name} was normalized (whitespace/quotes removed)`);
+  }
+
   return normalized.length > 0 ? normalized : undefined;
 }
 
 function getNormalizedEnv(name: string): string | undefined {
-  return normalizeEnvString(process.env[name]);
+  return normalizeEnvString(process.env[name], name);
 }
 
 /**
