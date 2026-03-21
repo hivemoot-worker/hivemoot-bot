@@ -705,6 +705,62 @@ describe("Queen Bot", () => {
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
     });
 
+    it("should propagate errors when awaiting-decision cleanup fails", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("issues.labeled")!;
+      const mockOctokit = createLabeledMockOctokit();
+      mockOctokit.rest.issues.removeLabel.mockRejectedValue(new Error("cleanup failed"));
+      const log = { info: vi.fn(), error: vi.fn() };
+
+      await expect(
+        handler({
+          payload: {
+            label: { name: LABELS.READY_TO_IMPLEMENT },
+            issue: {
+              number: 42,
+              labels: [{ name: LABELS.AWAITING_DECISION }, { name: LABELS.READY_TO_IMPLEMENT }],
+            },
+            sender: { type: "User", login: "alice" },
+            repository: { name: "test-repo", full_name: "hivemoot/test-repo", owner: { login: "hivemoot" } },
+          },
+          octokit: mockOctokit,
+          log,
+        }),
+      ).rejects.toThrow("cleanup failed");
+
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ issue: 42 }),
+        expect.stringContaining("Failed to clear awaiting-decision label"),
+      );
+    });
+
+    it("should throw AggregateError when voting comment and cleanup both fail", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("issues.labeled")!;
+      const mockOctokit = createLabeledMockOctokit();
+      mockOctokit.rest.issues.createComment.mockRejectedValue(new Error("comment failed"));
+      mockOctokit.rest.issues.removeLabel.mockRejectedValue(new Error("cleanup failed"));
+      const log = { info: vi.fn(), error: vi.fn() };
+
+      await expect(
+        handler({
+          payload: {
+            label: { name: LABELS.VOTING },
+            issue: {
+              number: 42,
+              labels: [{ name: LABELS.AWAITING_DECISION }, { name: LABELS.VOTING }],
+            },
+            sender: { type: "User", login: "alice" },
+            repository: { name: "test-repo", full_name: "hivemoot/test-repo", owner: { login: "hivemoot" } },
+          },
+          octokit: mockOctokit,
+          log,
+        }),
+      ).rejects.toThrow("issues.labeled failed");
+
+      expect(log.error).toHaveBeenCalledTimes(2);
+    });
+
     it("should post voting comment for manual user label addition", async () => {
       const { handlers } = createWebhookHarness();
       const handler = handlers.get("issues.labeled")!;
