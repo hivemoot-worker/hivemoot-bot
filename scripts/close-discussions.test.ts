@@ -578,6 +578,51 @@ describe("close-discussions script", () => {
       expect(mockIssues.addLabels).not.toHaveBeenCalled();
       expect(mockIssues.removeLabel).not.toHaveBeenCalled();
     });
+
+    it("should keep retrying phase-label cleanup after awaiting-decision was already added", async () => {
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(501),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 3, thumbsDown: 1, confused: 0, eyes: 0 },
+          voters: ["alice", "bob", "carol", "dan"],
+          participants: ["alice", "bob", "carol", "dan"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[
+                {
+                  number: 10,
+                  labels: [{ name: LABELS.VOTING }, { name: LABELS.AWAITING_DECISION }],
+                },
+              ]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        makeRepoConfig("manual"),
+      );
+
+      expect(count).toBe(1);
+      expect(mockIssues.addLabels).not.toHaveBeenCalled();
+      expect(mockIssues.removeLabel).toHaveBeenCalledWith(
+        { owner, repo: repoName, issueNumber: 10 },
+        LABELS.VOTING,
+      );
+    });
   });
 
   describe("processRepository gating", () => {
