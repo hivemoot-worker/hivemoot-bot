@@ -733,6 +733,10 @@ async function reconcileManualDecisionPhase(
         if (seen.has(issue.number)) continue;
         seen.add(issue.number);
         const issueLabels = Array.isArray(issue.labels) ? issue.labels : [];
+        const hasAwaitingDecision = issueLabels.some((issueLabel) => {
+          const labelName = typeof issueLabel === "string" ? issueLabel : issueLabel.name;
+          return isLabelMatch(labelName, LABELS.AWAITING_DECISION);
+        });
         const hasOtherGovernanceState = issueLabels.some((issueLabel) => {
           const labelName = typeof issueLabel === "string" ? issueLabel : issueLabel.name;
           if (!labelName || isLabelMatch(labelName, phaseLabel)) {
@@ -747,7 +751,6 @@ async function reconcileManualDecisionPhase(
             LABELS.REJECTED,
             LABELS.INCONCLUSIVE,
             LABELS.NEEDS_HUMAN,
-            LABELS.AWAITING_DECISION,
             LABELS.IMPLEMENTED,
           ].some((candidate) => isLabelMatch(labelName, candidate));
         });
@@ -767,7 +770,9 @@ async function reconcileManualDecisionPhase(
             continue;
           }
 
-          await issues.addLabels(ref, [LABELS.AWAITING_DECISION]);
+          if (!hasAwaitingDecision) {
+            await issues.addLabels(ref, [LABELS.AWAITING_DECISION]);
+          }
           await issues.removeLabel(ref, phaseLabel);
           reconciledCount++;
           logger.info(`[${owner}/${repoName}] Marked #${issue.number} as awaiting decision`);
