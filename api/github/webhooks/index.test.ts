@@ -677,6 +677,34 @@ describe("Queen Bot", () => {
       );
     });
 
+    it("should clear awaiting-decision for string-label payloads with installation context", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("issues.labeled")!;
+      const mockOctokit = createLabeledMockOctokit();
+
+      await handler({
+        payload: {
+          label: { name: LABELS.READY_TO_IMPLEMENT },
+          issue: {
+            number: 42,
+            labels: [LABELS.AWAITING_DECISION, LABELS.READY_TO_IMPLEMENT],
+          },
+          installation: { id: 321 },
+          sender: { type: "User", login: "alice" },
+          repository: { name: "test-repo", full_name: "hivemoot/test-repo", owner: { login: "hivemoot" } },
+        },
+        octokit: mockOctokit,
+        log: { info: vi.fn(), error: vi.fn() },
+      });
+
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.AWAITING_DECISION,
+        }),
+      );
+    });
+
     it("should clear awaiting-decision when voting is restarted by a bot", async () => {
       const { handlers } = createWebhookHarness();
       const handler = handlers.get("issues.labeled")!;
