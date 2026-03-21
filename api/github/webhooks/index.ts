@@ -1141,29 +1141,71 @@ export function app(probotApp: Probot): void {
    */
   probotApp.on("issues.labeled", async (context) => {
     const { label, issue, sender } = context.payload;
-    if (!isLabelMatch(label?.name, LABELS.VOTING)) return;
-    if (sender.type === "Bot") return;
+    const labeledName = label?.name;
+    const issueHasAwaitingDecision = Array.isArray(issue.labels)
+      && issue.labels.some((issueLabel) => {
+        const issueLabelName = typeof issueLabel === "string" ? issueLabel : issueLabel?.name;
+        return isLabelMatch(issueLabelName, LABELS.AWAITING_DECISION);
+      });
+    const clearsAwaitingDecision = issueHasAwaitingDecision && [
+      LABELS.DISCUSSION,
+      LABELS.VOTING,
+      LABELS.READY_TO_IMPLEMENT,
+      LABELS.REJECTED,
+      LABELS.EXTENDED_VOTING,
+      LABELS.INCONCLUSIVE,
+      LABELS.NEEDS_HUMAN,
+      LABELS.IMPLEMENTED,
+    ].some((candidate) => isLabelMatch(labeledName, candidate));
+    const shouldPostManualVotingComment = isLabelMatch(labeledName, LABELS.VOTING) && sender.type !== "Bot";
+
+    if (!shouldPostManualVotingComment && !clearsAwaitingDecision) return;
 
     const { owner, repo, fullName } = getRepoContext(context.payload.repository);
-    context.log.info(
-      `Manual voting label on issue #${issue.number} in ${fullName} (by ${sender.login})`,
-    );
+    const appId = getAppId();
+    const issues = createIssueOperations(context.octokit, { appId });
+    const installationId = context.payload.installation?.id;
+    const ref = installationId !== undefined
+      ? { owner, repo, issueNumber: issue.number, installationId }
+      : { owner, repo, issueNumber: issue.number };
+    const errors: Error[] = [];
 
-    try {
-      const appId = getAppId();
-      const issues = createIssueOperations(context.octokit, { appId });
-      const governance = createGovernanceService(issues);
-      const installationId = context.payload.installation?.id;
-      const result = await governance.postVotingComment({
-        owner, repo, issueNumber: issue.number, installationId,
-      });
-      context.log.info(`Voting comment for issue #${issue.number}: ${result}`);
-    } catch (error) {
-      context.log.error(
-        { err: error, issue: issue.number, repo: fullName },
-        "Failed to post voting comment for manually labeled issue",
+    if (shouldPostManualVotingComment) {
+      context.log.info(
+        `Manual voting label on issue #${issue.number} in ${fullName} (by ${sender.login})`,
       );
-      throw error;
+
+      try {
+        const governance = createGovernanceService(issues);
+        const result = await governance.postVotingComment(ref);
+        context.log.info(`Voting comment for issue #${issue.number}: ${result}`);
+      } catch (error) {
+        context.log.error(
+          { err: error, issue: issue.number, repo: fullName },
+          "Failed to post voting comment for manually labeled issue",
+        );
+        errors.push(error as Error);
+      }
+    }
+
+    if (clearsAwaitingDecision) {
+      try {
+        await issues.removeLabel(ref, LABELS.AWAITING_DECISION);
+        context.log.info(`Cleared awaiting-decision label for issue #${issue.number} in ${fullName}`);
+      } catch (error) {
+        context.log.error(
+          { err: error, issue: issue.number, repo: fullName },
+          "Failed to clear awaiting-decision label after issue label change",
+        );
+        errors.push(error as Error);
+      }
+    }
+
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(errors, `issues.labeled failed for #${issue.number} in ${fullName}`);
     }
   });
 }

@@ -12,7 +12,7 @@
 
 import { Octokit } from "octokit";
 import * as core from "@actions/core";
-import { LABELS, PR_MESSAGES, getLabelQueryAliases } from "../api/config.js";
+import { LABELS, PR_MESSAGES, getLabelQueryAliases, isLabelMatch } from "../api/config.js";
 import {
   createIssueOperations,
   createPROperations,
@@ -27,7 +27,7 @@ import { NOTIFICATION_TYPES } from "../api/lib/bot-comments.js";
 import { processImplementationIntake } from "../api/lib/implementation-intake.js";
 import { getLinkedIssues } from "../api/lib/graphql-queries.js";
 import { runForAllRepositories, runIfMain } from "./shared/run-installations.js";
-import { isExitEligible, isDiscussionExitEligible } from "../api/lib/governance.js";
+import { isDecisive, isExitEligible, isDiscussionExitEligible } from "../api/lib/governance.js";
 import type {
   Repository,
   Issue,
@@ -667,6 +667,122 @@ export async function reconcileUnlabeledIssues(
   return reconciledCount;
 }
 
+/**
+ * Reconcile manual voting phases that now have a decisive outcome.
+ *
+ * In manual-mode voting, the bot should not auto-transition to the next phase,
+ * but it should surface the issue for maintainers once the tally is decisive.
+ * This pass replaces `hivemoot:voting` / `hivemoot:extended-voting` with
+ * `hivemoot:awaiting-decision` when the vote is no longer tied.
+ */
+export async function reconcileManualDecisionIssues(
+  octokit: InstanceType<typeof Octokit>,
+  owner: string,
+  repoName: string,
+  issues: IssueOperations,
+  config: EffectiveConfig,
+  installationId?: number,
+): Promise<number> {
+  let reconciledCount = 0;
+
+  if (!hasAutoExits(config.governance.proposals.voting.exits)) {
+    reconciledCount += await reconcileManualDecisionPhase(
+      octokit,
+      owner,
+      repoName,
+      issues,
+      LABELS.VOTING,
+      installationId,
+    );
+  }
+
+  if (!hasAutoExits(config.governance.proposals.extendedVoting.exits)) {
+    reconciledCount += await reconcileManualDecisionPhase(
+      octokit,
+      owner,
+      repoName,
+      issues,
+      LABELS.EXTENDED_VOTING,
+      installationId,
+    );
+  }
+
+  return reconciledCount;
+}
+
+async function reconcileManualDecisionPhase(
+  octokit: InstanceType<typeof Octokit>,
+  owner: string,
+  repoName: string,
+  issues: IssueOperations,
+  phaseLabel: string,
+  installationId?: number,
+): Promise<number> {
+  let reconciledCount = 0;
+  const seen = new Set<number>();
+
+  for (const alias of getLabelQueryAliases(phaseLabel)) {
+    const iterator = octokit.paginate.iterator(
+      octokit.rest.issues.listForRepo,
+      { owner, repo: repoName, state: "open", labels: alias, per_page: 100 },
+    );
+
+    for await (const { data: page } of iterator) {
+      for (const issue of page as Issue[]) {
+        if ("pull_request" in issue) continue;
+        if (seen.has(issue.number)) continue;
+        seen.add(issue.number);
+        const issueLabels = Array.isArray(issue.labels) ? issue.labels : [];
+        const hasOtherGovernanceState = issueLabels.some((issueLabel) => {
+          const labelName = typeof issueLabel === "string" ? issueLabel : issueLabel.name;
+          if (!labelName || isLabelMatch(labelName, phaseLabel)) {
+            return false;
+          }
+
+          return [
+            LABELS.DISCUSSION,
+            LABELS.VOTING,
+            LABELS.EXTENDED_VOTING,
+            LABELS.READY_TO_IMPLEMENT,
+            LABELS.REJECTED,
+            LABELS.INCONCLUSIVE,
+            LABELS.NEEDS_HUMAN,
+            LABELS.AWAITING_DECISION,
+            LABELS.IMPLEMENTED,
+          ].some((candidate) => isLabelMatch(labelName, candidate));
+        });
+        if (hasOtherGovernanceState) {
+          continue;
+        }
+
+        const ref = createIssueRef(owner, repoName, issue.number, installationId);
+        try {
+          const commentId = await issues.findVotingCommentId(ref);
+          if (commentId === null) {
+            continue;
+          }
+
+          const validated = await issues.getValidatedVoteCounts(ref, commentId);
+          if (!isDecisive(validated.votes)) {
+            continue;
+          }
+
+          await issues.addLabels(ref, [LABELS.AWAITING_DECISION]);
+          await issues.removeLabel(ref, phaseLabel);
+          reconciledCount++;
+          logger.info(`[${owner}/${repoName}] Marked #${issue.number} as awaiting decision`);
+        } catch (error) {
+          logger.warn(
+            `[${owner}/${repoName}] Failed to reconcile #${issue.number} for awaiting decision: ${(error as Error).message}`,
+          );
+        }
+      }
+    }
+  }
+
+  return reconciledCount;
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Repository Processing
 // ───────────────────────────────────────────────────────────────────────────────
@@ -804,6 +920,24 @@ export async function processRepository(
     } catch (error) {
       logger.warn(
         `[${repo.full_name}] Unlabeled issue reconciliation failed: ${(error as Error).message}. Continuing with phase transitions.`,
+      );
+    }
+
+    try {
+      const reconciled = await reconcileManualDecisionIssues(
+        octokit,
+        owner,
+        repoName,
+        issues,
+        repoConfig,
+        installationId,
+      );
+      if (reconciled > 0) {
+        logger.info(`[${repo.full_name}] Reconciled ${reconciled} manual decision issue(s)`);
+      }
+    } catch (error) {
+      logger.warn(
+        `[${repo.full_name}] Awaiting-decision reconciliation failed: ${(error as Error).message}. Continuing with phase transitions.`,
       );
     }
 
