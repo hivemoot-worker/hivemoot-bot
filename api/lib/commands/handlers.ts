@@ -519,6 +519,7 @@ async function handleImplement(ctx: CommandContext): Promise<CommandResult> {
     LABELS.VOTING,
     LABELS.EXTENDED_VOTING,
     LABELS.NEEDS_HUMAN,
+    LABELS.AWAITING_DECISION,
   ] as const;
   const labelsToClear = phaseLabelsInPriority.filter(label => hasLabel(ctx, label));
   const [removeLabel, ...extraPhaseLabelsToRemove] = labelsToClear;

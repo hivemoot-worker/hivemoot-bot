@@ -157,6 +157,7 @@ describe("config", () => {
       expect(isLabelMatch("hivemoot:voting", LABELS.VOTING)).toBe(true);
       expect(isLabelMatch("hivemoot:ready-to-implement", LABELS.READY_TO_IMPLEMENT)).toBe(true);
       expect(isLabelMatch("hivemoot:candidate", LABELS.IMPLEMENTATION)).toBe(true);
+      expect(isLabelMatch("hivemoot:awaiting-decision", LABELS.AWAITING_DECISION)).toBe(true);
       expect(isLabelMatch("hivemoot:merge-ready", LABELS.MERGE_READY)).toBe(true);
     });
 

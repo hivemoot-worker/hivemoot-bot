@@ -297,6 +297,7 @@ Useful scripts:
 | `hivemoot:stale`              | PR has no recent activity (when stale cleanup is enabled)   |
 | `hivemoot:implemented`        | Issue was implemented by a merged PR                        |
 | `hivemoot:needs-human`        | Human maintainer intervention is required                   |
+| `hivemoot:awaiting-decision`  | Voting finished; a maintainer decision is still needed      |
 | `hivemoot:merge-ready`        | Implementation PR satisfies merge-readiness checks          |
 | `hivemoot:squash-queued`      | PR is queued for automatic squash retry after CI completes  |
 

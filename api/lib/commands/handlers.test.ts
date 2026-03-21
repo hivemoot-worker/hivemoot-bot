@@ -521,6 +521,23 @@ describe("executeCommand", () => {
       );
     });
 
+    it("should transition from awaiting-decision to ready-to-implement", async () => {
+      const ctx = createCtx({
+        verb: "implement",
+        issueLabels: [{ name: LABELS.AWAITING_DECISION }],
+      });
+      const result = await executeCommand(ctx);
+
+      expect(result.status).toBe("executed");
+      expect(mockIssueOps.transition).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          removeLabel: LABELS.AWAITING_DECISION,
+          addLabel: LABELS.READY_TO_IMPLEMENT,
+        }),
+      );
+    });
+
     it("should remove extra phase labels after transition", async () => {
       const ctx = createCtx({
         verb: "implement",

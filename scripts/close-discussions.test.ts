@@ -69,11 +69,12 @@ import {
   hasAutomaticGovernancePhases,
   processRepository,
   reconcileMissingVotingComments,
+  reconcileManualDecisionIssues,
   reconcileUnlabeledIssues,
 } from "./close-discussions.js";
 import type { EarlyDecisionDeps, DiscussionEarlyCheckDeps } from "./close-discussions.js";
 import { getOpenPRsForIssue, logger, loadRepositoryConfig, createIssueOperations, createGovernanceService } from "../api/lib/index.js";
-import { PR_MESSAGES } from "../api/config.js";
+import { LABELS, PR_MESSAGES } from "../api/config.js";
 import type {
   VotingOutcome,
   IssueRef,
@@ -487,6 +488,98 @@ describe("close-discussions script", () => {
     });
   });
 
+  describe("reconcileManualDecisionIssues", () => {
+    const owner = "test-org";
+    const repoName = "test-repo";
+
+    it("should replace decisive manual voting issues with awaiting-decision", async () => {
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(501),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 3, thumbsDown: 1, confused: 0, eyes: 0 },
+          voters: ["alice", "bob", "carol", "dan"],
+          participants: ["alice", "bob", "carol", "dan"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 10 }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        makeRepoConfig("manual"),
+        999,
+      );
+
+      expect(count).toBe(1);
+      expect(mockIssues.findVotingCommentId).toHaveBeenCalledWith({
+        owner,
+        repo: repoName,
+        issueNumber: 10,
+        installationId: 999,
+      });
+      expect(mockIssues.addLabels).toHaveBeenCalledWith(
+        expect.objectContaining({ issueNumber: 10, installationId: 999 }),
+        [LABELS.AWAITING_DECISION],
+      );
+      expect(mockIssues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({ issueNumber: 10, installationId: 999 }),
+        LABELS.VOTING,
+      );
+    });
+
+    it("should ignore tied manual voting issues", async () => {
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(501),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 1, thumbsDown: 1, confused: 0, eyes: 0 },
+          voters: ["alice", "bob"],
+          participants: ["alice", "bob"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 10 }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        makeRepoConfig("manual"),
+      );
+
+      expect(count).toBe(0);
+      expect(mockIssues.addLabels).not.toHaveBeenCalled();
+      expect(mockIssues.removeLabel).not.toHaveBeenCalled();
+    });
+  });
+
   describe("processRepository gating", () => {
     const repo = {
       owner: { login: "test-org" },
@@ -521,6 +614,56 @@ describe("close-discussions script", () => {
       expect(mockCreateIssueOperations).toHaveBeenCalled();
       expect(mockCreateGovernanceService).toHaveBeenCalled();
       // But scheduled transitions are still skipped
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("all proposal exits are manual")
+      );
+    });
+
+    it("should reconcile decisive manual voting issues before skipping transitions", async () => {
+      const mockGovernance = {
+        postVotingComment: vi.fn().mockResolvedValue("skipped"),
+        startDiscussion: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(700),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 2, thumbsDown: 0, confused: 0, eyes: 0 },
+          voters: ["alice", "bob"],
+          participants: ["alice", "bob"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      mockCreateIssueOperations.mockReturnValue(mockIssues);
+      mockCreateGovernanceService.mockReturnValue(mockGovernance);
+
+      const fakeOctokit = {
+        rest: {
+          issues: {
+            listForRepo: vi.fn(),
+          },
+        },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 42, labels: [{ name: LABELS.VOTING }] }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+      mockLoadRepositoryConfig.mockResolvedValue(makeRepoConfig("manual"));
+
+      await processRepository(fakeOctokit, repo, appId);
+
+      expect(mockIssues.addLabels).toHaveBeenCalledWith(
+        { owner: "test-org", repo: "test-repo", issueNumber: 42 },
+        [LABELS.AWAITING_DECISION],
+      );
+      expect(mockIssues.removeLabel).toHaveBeenCalledWith(
+        { owner: "test-org", repo: "test-repo", issueNumber: 42 },
+        LABELS.VOTING,
+      );
       expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining("all proposal exits are manual")
       );

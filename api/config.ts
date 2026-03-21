@@ -343,6 +343,7 @@ export const LABELS = {
   STALE: "hivemoot:stale",
   IMPLEMENTED: "hivemoot:implemented",
   NEEDS_HUMAN: "hivemoot:needs-human",
+  AWAITING_DECISION: "hivemoot:awaiting-decision",
   MERGE_READY: "hivemoot:merge-ready",
   SQUASH_QUEUED: "hivemoot:squash-queued",
   AUTOMERGE: "hivemoot:automerge",
@@ -461,6 +462,11 @@ export const REQUIRED_REPOSITORY_LABELS: readonly RepositoryLabelDefinition[] = 
     name: LABELS.NEEDS_HUMAN,
     color: "e99695",
     description: "Human maintainer intervention is required.",
+  },
+  {
+    name: LABELS.AWAITING_DECISION,
+    color: "d4c5f9",
+    description: "Voting outcome determined; awaiting maintainer action.",
   },
   {
     name: LABELS.MERGE_READY,
