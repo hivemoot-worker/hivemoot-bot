@@ -247,7 +247,7 @@ describe("Implementation Intake", () => {
       expect(postedMessage).toContain("Issue Closed");
       expect(postedMessage).toContain(`Issue #42`);
       expect(postedMessage).not.toContain("Not Ready Yet");
-      expect(postedMessage).not.toContain("hasn't passed voting");
+      expect(postedMessage).not.toContain("isn't approved for implementation yet");
     }
   );
 
@@ -286,7 +286,7 @@ describe("Implementation Intake", () => {
     expect(prs.comment).toHaveBeenCalledOnce();
     const postedMessage = prs.comment.mock.calls[0][1] as string;
     expect(postedMessage).toContain("Not Ready Yet");
-    expect(postedMessage).toContain("hasn't passed voting");
+    expect(postedMessage).toContain("isn't approved for implementation yet");
     expect(postedMessage).not.toContain("Issue Closed");
   });
 
