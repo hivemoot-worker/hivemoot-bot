@@ -7,7 +7,13 @@
 
 import type { PRRef } from "./types.js";
 import { validateClient, PR_CLIENT_CHECKS } from "./client-validation.js";
-import { isNotificationComment } from "./bot-comments.js";
+import {
+  isAutomergeStatusComment,
+  isNotificationComment,
+  buildAutomergeStatusComment,
+  parseMetadata,
+} from "./bot-comments.js";
+import type { AutomergeStatusMetadata } from "./bot-comments.js";
 import { LABELS, isLabelMatch, getLabelQueryAliases } from "../config.js";
 import { getErrorStatus } from "./github-client.js";
 
@@ -128,6 +134,13 @@ export interface PRClient {
         owner: string;
         repo: string;
         issue_number: number;
+        body: string;
+      }) => Promise<unknown>;
+
+      updateComment: (params: {
+        owner: string;
+        repo: string;
+        comment_id: number;
         body: string;
       }) => Promise<unknown>;
 
@@ -344,6 +357,81 @@ export class PROperations {
       issue_number: ref.prNumber,
       body,
     });
+  }
+
+  /**
+   * Create or update the automerge status comment on a PR.
+   *
+   * Idempotent: skips the write when the existing comment already reflects
+   * the same eligible/reason state, preventing noise from repeated evaluations.
+   */
+  async upsertAutomergeStatus(
+    ref: PRRef,
+    eligible: boolean,
+    reason: string
+  ): Promise<void> {
+    // Scan PR comments to find the existing automerge-status comment, if any
+    let existingCommentId: number | null = null;
+    let existingEligible: boolean | null = null;
+    let existingReason: string | null = null;
+
+    let page = 1;
+    const perPage = 100;
+    outer: while (true) {
+      const { data } = await this.client.rest.issues.listComments({
+        owner: ref.owner,
+        repo: ref.repo,
+        issue_number: ref.prNumber,
+        per_page: perPage,
+        page,
+      });
+
+      for (const comment of data) {
+        if (
+          isAutomergeStatusComment(
+            comment.body,
+            this.appId,
+            comment.performed_via_github_app?.id
+          )
+        ) {
+          existingCommentId = comment.id;
+          const meta = parseMetadata(comment.body) as AutomergeStatusMetadata | null;
+          existingEligible = meta?.eligible ?? null;
+          existingReason = meta?.reason ?? null;
+          break outer;
+        }
+      }
+
+      if (data.length < perPage) break;
+      page++;
+    }
+
+    // Skip if state is unchanged
+    if (
+      existingCommentId !== null &&
+      existingEligible === eligible &&
+      existingReason === reason
+    ) {
+      return;
+    }
+
+    const body = buildAutomergeStatusComment(ref.prNumber, eligible, reason);
+
+    if (existingCommentId !== null) {
+      await this.client.rest.issues.updateComment({
+        owner: ref.owner,
+        repo: ref.repo,
+        comment_id: existingCommentId,
+        body,
+      });
+    } else {
+      await this.client.rest.issues.createComment({
+        owner: ref.owner,
+        repo: ref.repo,
+        issue_number: ref.prNumber,
+        body,
+      });
+    }
   }
 
   /**

@@ -16,7 +16,7 @@
  * All possible bot comment types.
  * Single source of truth: the array drives both runtime validation and the type.
  */
-const COMMENT_TYPES = ["voting", "leaderboard", "welcome", "alignment", "status", "error", "notification", "standup"] as const;
+const COMMENT_TYPES = ["voting", "leaderboard", "welcome", "alignment", "status", "error", "notification", "standup", "automerge-status"] as const;
 export type CommentType = (typeof COMMENT_TYPES)[number];
 
 /**
@@ -94,6 +94,17 @@ export interface StandupMetadata extends BaseMetadata {
 }
 
 /**
+ * Automerge status comment metadata - live eligibility panel on implementation PRs.
+ * Created/updated after each evaluateAutomerge call from webhook handlers.
+ * issueNumber holds the PR number.
+ */
+export interface AutomergeStatusMetadata extends BaseMetadata {
+  type: "automerge-status";
+  eligible: boolean;
+  reason: string;
+}
+
+/**
  * Discriminated union of all comment metadata types.
  */
 export type CommentMetadata =
@@ -104,7 +115,8 @@ export type CommentMetadata =
   | StatusMetadata
   | HumanHelpMetadata
   | NotificationMetadata
-  | StandupMetadata;
+  | StandupMetadata
+  | AutomergeStatusMetadata;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signatures for Comment Detection
@@ -261,6 +273,25 @@ export function createStandupMetadata(day: number, date: string, repo: string): 
   };
 }
 
+/**
+ * Create automerge status comment metadata.
+ * issueNumber holds the PR number.
+ */
+export function createAutomergeStatusMetadata(
+  prNumber: number,
+  eligible: boolean,
+  reason: string
+): AutomergeStatusMetadata {
+  return {
+    version: 1,
+    type: "automerge-status",
+    eligible,
+    reason,
+    createdAt: new Date().toISOString(),
+    issueNumber: prNumber,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Comment Builders
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,6 +355,22 @@ export function buildNotificationComment(
 ): string {
   const metadata = createNotificationMetadata(issueNumber, notificationType);
   return `${generateMetadataTag(metadata)}\n${content}`;
+}
+
+/**
+ * Build an automerge status comment for a PR.
+ * Eligible PRs show a confirmation; ineligible PRs explain why.
+ */
+export function buildAutomergeStatusComment(
+  prNumber: number,
+  eligible: boolean,
+  reason: string
+): string {
+  const metadata = createAutomergeStatusMetadata(prNumber, eligible, reason);
+  const body = eligible
+    ? "✅ This PR qualifies for automerge (`hivemoot:automerge`)."
+    : `⚠️ This PR does not currently qualify for automerge: ${reason}.`;
+  return `${generateMetadataTag(metadata)}\n${body}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -532,6 +579,24 @@ export function isNotificationComment(
     }
   }
   return true;
+}
+
+/**
+ * Check if a comment is an automerge status comment from our app.
+ * Uses metadata type for stable detection.
+ */
+export function isAutomergeStatusComment(
+  body: string | undefined | null,
+  appId: number,
+  performedViaAppId: number | undefined | null
+): boolean {
+  if (performedViaAppId !== appId) {
+    return false;
+  }
+  if (typeof body !== "string") {
+    return false;
+  }
+  return hasMetadataType(body, "automerge-status");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

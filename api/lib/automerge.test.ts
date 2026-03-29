@@ -356,7 +356,7 @@ describe("evaluateAutomerge", () => {
       trustedReviewers,
     });
 
-    expect(result).toEqual({ action: "noop", labeled: false });
+    expect(result).toEqual({ action: "noop", labeled: false, reason: "file not allowed: src/index.ts" });
     expect(prs.removeLabel).not.toHaveBeenCalled();
   });
 
@@ -375,7 +375,7 @@ describe("evaluateAutomerge", () => {
       trustedReviewers,
     });
 
-    expect(result).toEqual({ action: "noop", labeled: false });
+    expect(result).toEqual({ action: "noop", labeled: false, reason: "insufficient approvals: 1/2" });
     expect(prs.addLabels).not.toHaveBeenCalled();
   });
 
@@ -422,7 +422,7 @@ describe("evaluateAutomerge", () => {
       headSha: "sha123",
     });
 
-    expect(result).toEqual({ action: "noop", labeled: false });
+    expect(result).toEqual({ action: "noop", labeled: false, reason: "CI not passing" });
   });
 
   it("skips CI check when requireChecks is false", async () => {
@@ -596,7 +596,7 @@ describe("evaluateAutomerge", () => {
         draft: true,
       });
 
-      expect(result).toEqual({ action: "noop", labeled: false });
+      expect(result).toEqual({ action: "noop", labeled: false, reason: "PR is a draft" });
       expect(prs.removeLabel).not.toHaveBeenCalled();
       expect(prs.listFiles).not.toHaveBeenCalled();
     });
@@ -661,7 +661,7 @@ describe("evaluateAutomerge", () => {
     });
 
     // Only alice counts (bob not approved, charlie not trusted)
-    expect(result).toEqual({ action: "noop", labeled: false });
+    expect(result).toEqual({ action: "noop", labeled: false, reason: "insufficient approvals: 1/2" });
   });
 });
 

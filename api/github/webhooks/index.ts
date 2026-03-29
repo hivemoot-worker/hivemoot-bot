@@ -15,6 +15,8 @@ import {
   evaluateMergeReadiness,
   evaluateAutomerge,
 } from "../../lib/index.js";
+import type { AutomergeResult, PROperationsType } from "../../lib/index.js";
+import type { PRRef } from "../../lib/index.js";
 import {
   getLinkedIssues,
   disablePullRequestAutoMerge,
@@ -95,6 +97,33 @@ function getRepoContext(repository: RepoPayload): RepoContext {
     repo: repository.name,
     fullName: repository.full_name,
   };
+}
+
+/**
+ * Post or update the automerge status comment on a PR after classification.
+ *
+ * Called only from webhook handlers (not reconciliation scripts) to notify
+ * PR authors of their current automerge eligibility. Errors are swallowed so
+ * a comment failure never fails the webhook event.
+ */
+async function notifyAutomergeStatus(
+  prs: PROperationsType,
+  ref: PRRef,
+  result: AutomergeResult | undefined
+): Promise<void> {
+  if (!result || result.action === "skipped") return;
+
+  const eligible =
+    result.action === "labeled" ||
+    (result.action === "noop" && result.labeled === true);
+  const reason =
+    !eligible && "reason" in result ? result.reason : "";
+
+  try {
+    await prs.upsertAutomergeStatus(ref, eligible, reason);
+  } catch {
+    // Non-critical: status comment failure must not fail the webhook
+  }
 }
 
 export function app(probotApp: Probot): void {
@@ -217,9 +246,10 @@ export function app(probotApp: Probot): void {
           intake: repoConfig.governance.pr.intake,
         });
 
-        await evaluateAutomerge({
+        const openedPRRef = { owner, repo, prNumber: number };
+        const openedAutomergeResult = await evaluateAutomerge({
           prs,
-          ref: { owner, repo, prNumber: number },
+          ref: openedPRRef,
           config: repoConfig.governance.pr.automerge,
           trustedReviewers: repoConfig.governance.pr.trustedReviewers,
           nodeId: context.payload.pull_request.node_id,
@@ -228,6 +258,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
+        await notifyAutomergeStatus(prs, openedPRRef, openedAutomergeResult);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR");
@@ -315,7 +346,7 @@ export function app(probotApp: Probot): void {
           intake: repoConfig.governance.pr.intake,
         });
 
-        await evaluateAutomerge({
+        const syncAutomergeResult = await evaluateAutomerge({
           prs,
           ref: prRef,
           config: repoConfig.governance.pr.automerge,
@@ -326,6 +357,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
+        await notifyAutomergeStatus(prs, prRef, syncAutomergeResult);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR update");
@@ -368,7 +400,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
         });
 
-        await evaluateAutomerge({
+        const readyAutomergeResult = await evaluateAutomerge({
           prs,
           ref: prRef,
           config: repoConfig.governance.pr.automerge,
@@ -380,6 +412,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
+        await notifyAutomergeStatus(prs, prRef, readyAutomergeResult);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process ready_for_review");
@@ -740,9 +773,10 @@ export function app(probotApp: Probot): void {
           reviewPRMergeable = prState.mergeable;
           reviewPRNodeId = prState.nodeId;
         }
-        await evaluateAutomerge({
+        const reviewRef = { owner, repo, prNumber: number };
+        const reviewAutomergeResult = await evaluateAutomerge({
           prs,
-          ref: { owner, repo, prNumber: number },
+          ref: reviewRef,
           config: repoConfig.governance.pr.automerge,
           trustedReviewers: repoConfig.governance.pr.trustedReviewers,
           nodeId: reviewPRNodeId,
@@ -751,6 +785,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
+        await notifyAutomergeStatus(prs, reviewRef, reviewAutomergeResult);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR review");
@@ -795,9 +830,10 @@ export function app(probotApp: Probot): void {
           dismissedPRMergeable = prState.mergeable;
           dismissedPRNodeId = prState.nodeId;
         }
-        await evaluateAutomerge({
+        const dismissedRef = { owner, repo, prNumber: number };
+        const dismissedAutomergeResult = await evaluateAutomerge({
           prs,
-          ref: { owner, repo, prNumber: number },
+          ref: dismissedRef,
           config: repoConfig.governance.pr.automerge,
           trustedReviewers: repoConfig.governance.pr.trustedReviewers,
           nodeId: dismissedPRNodeId,
@@ -806,6 +842,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
+        await notifyAutomergeStatus(prs, dismissedRef, dismissedAutomergeResult);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to update leaderboard after review dismissal");
@@ -899,7 +936,7 @@ export function app(probotApp: Probot): void {
             prMergeable = prState.mergeable;
             prNodeId = prState.nodeId;
           }
-          await evaluateAutomerge({
+          const checkSuiteAutomergeResult = await evaluateAutomerge({
             prs,
             ref: prRef,
             config: repoConfig.governance.pr.automerge,
@@ -911,6 +948,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
+          await notifyAutomergeStatus(prs, prRef, checkSuiteAutomergeResult);
         } catch (error) {
           context.log.error({ err: error, pr: pr.number, repo: fullName }, "Failed to evaluate merge-readiness after check_suite");
           errors.push(error as Error);
@@ -976,7 +1014,7 @@ export function app(probotApp: Probot): void {
             prMergeable = prState.mergeable;
             checkRunPRNodeId = prState.nodeId;
           }
-          await evaluateAutomerge({
+          const checkRunAutomergeResult = await evaluateAutomerge({
             prs,
             ref: prRef,
             config: repoConfig.governance.pr.automerge,
@@ -989,6 +1027,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
+          await notifyAutomergeStatus(prs, prRef, checkRunAutomergeResult);
 
           if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
             context.log.info(`Retrying queued squash for PR #${pr.number} after check_run in ${fullName}`);
@@ -1081,9 +1120,10 @@ export function app(probotApp: Probot): void {
             statusPRMergeable = prState.mergeable;
             statusPRNodeId = prState.nodeId;
           }
-          await evaluateAutomerge({
+          const statusRef = { owner, repo, prNumber: pr.number };
+          const statusAutomergeResult = await evaluateAutomerge({
             prs,
-            ref: { owner, repo, prNumber: pr.number },
+            ref: statusRef,
             config: repoConfig.governance.pr.automerge,
             trustedReviewers: repoConfig.governance.pr.trustedReviewers,
             nodeId: statusPRNodeId,
@@ -1094,6 +1134,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
+          await notifyAutomergeStatus(prs, statusRef, statusAutomergeResult);
 
           if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
             context.log.info(`Retrying queued squash for PR #${pr.number} after status event in ${fullName}`);

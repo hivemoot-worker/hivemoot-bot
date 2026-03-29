@@ -43,7 +43,8 @@ export type AutomergeResult =
   | { action: "skipped"; reason: string }
   | { action: "labeled" }
   | { action: "unlabeled"; reason: string }
-  | { action: "noop"; labeled: boolean };
+  | { action: "noop"; labeled: true }
+  | { action: "noop"; labeled: false; reason: string };
 
 export interface AutomergeParams {
   prs: PROperations;
@@ -246,7 +247,7 @@ export async function evaluateAutomerge(
       log?.info(`[PR #${ref.prNumber}] Removed automerge: ${reason}`);
       return { action: "unlabeled", reason };
     }
-    return { action: "noop", labeled: false };
+    return { action: "noop", labeled: false, reason };
   };
 
   // 2. PR state gates — cheaper than file/approval/CI API calls

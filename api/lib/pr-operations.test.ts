@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PROperations, createPROperations } from "./pr-operations.js";
 import type { PRClient } from "./pr-operations.js";
 import type { PRRef } from "./types.js";
-import { buildNotificationComment, NOTIFICATION_TYPES } from "./bot-comments.js";
+import { buildNotificationComment, NOTIFICATION_TYPES, buildAutomergeStatusComment } from "./bot-comments.js";
 import { LABELS } from "../config.js";
 
 /**
@@ -35,6 +35,7 @@ describe("createPROperations", () => {
         addLabels: vi.fn(),
         removeLabel: vi.fn(),
         createComment: vi.fn(),
+        updateComment: vi.fn(),
         listForRepo: vi.fn(),
         listComments: vi.fn(),
       },
@@ -246,6 +247,7 @@ describe("PROperations", () => {
           addLabels: vi.fn().mockResolvedValue({}),
           removeLabel: vi.fn().mockResolvedValue({}),
           createComment: vi.fn().mockResolvedValue({}),
+          updateComment: vi.fn().mockResolvedValue({}),
           listForRepo: vi.fn().mockResolvedValue({ data: [] }),
           listComments: vi.fn().mockResolvedValue({ data: [] }),
         },
@@ -1383,6 +1385,120 @@ describe("PROperations", () => {
 
       expect(result).toEqual([]);
       expect(mockClient.rest.pulls.listFiles).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("upsertAutomergeStatus", () => {
+    it("creates a new comment when none exists", async () => {
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({ data: [] });
+
+      await prOps.upsertAutomergeStatus(testRef, false, "insufficient approvals: 1/2");
+
+      expect(mockClient.rest.issues.createComment).toHaveBeenCalledWith({
+        owner: testRef.owner,
+        repo: testRef.repo,
+        issue_number: testRef.prNumber,
+        body: expect.stringContaining("insufficient approvals: 1/2"),
+      });
+      expect(mockClient.rest.issues.updateComment).not.toHaveBeenCalled();
+    });
+
+    it("creates an eligible comment when PR qualifies", async () => {
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({ data: [] });
+
+      await prOps.upsertAutomergeStatus(testRef, true, "");
+
+      expect(mockClient.rest.issues.createComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.stringContaining("qualifies for automerge"),
+        })
+      );
+    });
+
+    it("updates existing comment when reason changes", async () => {
+      const existingBody = buildAutomergeStatusComment(testRef.prNumber, false, "insufficient approvals: 1/2");
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({
+        data: [
+          {
+            id: 999,
+            body: existingBody,
+            created_at: "2024-01-01T00:00:00Z",
+            performed_via_github_app: { id: testAppId },
+          },
+        ],
+      });
+
+      await prOps.upsertAutomergeStatus(testRef, false, "CI not passing");
+
+      expect(mockClient.rest.issues.updateComment).toHaveBeenCalledWith({
+        owner: testRef.owner,
+        repo: testRef.repo,
+        comment_id: 999,
+        body: expect.stringContaining("CI not passing"),
+      });
+      expect(mockClient.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    it("skips update when eligible and reason are unchanged", async () => {
+      const existingBody = buildAutomergeStatusComment(testRef.prNumber, false, "CI not passing");
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({
+        data: [
+          {
+            id: 999,
+            body: existingBody,
+            created_at: "2024-01-01T00:00:00Z",
+            performed_via_github_app: { id: testAppId },
+          },
+        ],
+      });
+
+      await prOps.upsertAutomergeStatus(testRef, false, "CI not passing");
+
+      expect(mockClient.rest.issues.updateComment).not.toHaveBeenCalled();
+      expect(mockClient.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
+    it("updates comment when eligible state changes (ineligible to eligible)", async () => {
+      const existingBody = buildAutomergeStatusComment(testRef.prNumber, false, "CI not passing");
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({
+        data: [
+          {
+            id: 999,
+            body: existingBody,
+            created_at: "2024-01-01T00:00:00Z",
+            performed_via_github_app: { id: testAppId },
+          },
+        ],
+      });
+
+      await prOps.upsertAutomergeStatus(testRef, true, "");
+
+      expect(mockClient.rest.issues.updateComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          comment_id: 999,
+          body: expect.stringContaining("qualifies for automerge"),
+        })
+      );
+    });
+
+    it("ignores automerge-status comments from other apps", async () => {
+      const otherAppBody = buildAutomergeStatusComment(testRef.prNumber, false, "CI not passing");
+      vi.mocked(mockClient.rest.issues.listComments).mockResolvedValue({
+        data: [
+          {
+            id: 888,
+            body: otherAppBody,
+            created_at: "2024-01-01T00:00:00Z",
+            performed_via_github_app: { id: 99999 }, // different app
+          },
+        ],
+      });
+
+      await prOps.upsertAutomergeStatus(testRef, false, "CI not passing");
+
+      // Treats comment from other app as non-existent → creates a new one
+      expect(mockClient.rest.issues.createComment).toHaveBeenCalled();
+      expect(mockClient.rest.issues.updateComment).not.toHaveBeenCalled();
     });
   });
 });
