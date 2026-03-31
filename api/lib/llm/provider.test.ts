@@ -61,6 +61,20 @@ describe("LLM Provider", () => {
       expect(isLLMConfigured()).toBe(false);
     });
 
+    it("should reject Object.prototype property names as providers", () => {
+      process.env.LLM_PROVIDER = "constructor";
+      process.env.LLM_MODEL = "some-model";
+
+      expect(isLLMConfigured()).toBe(false);
+    });
+
+    it("should reject hasOwnProperty as provider", () => {
+      process.env.LLM_PROVIDER = "hasOwnProperty";
+      process.env.LLM_MODEL = "some-model";
+
+      expect(isLLMConfigured()).toBe(false);
+    });
+
     it("should return true when valid provider and model are set", () => {
       process.env.LLM_PROVIDER = "anthropic";
       process.env.LLM_MODEL = "claude-3-haiku";
@@ -103,6 +117,13 @@ describe("LLM Provider", () => {
 
     it("should return null for invalid provider", () => {
       process.env.LLM_PROVIDER = "not-a-provider";
+      process.env.LLM_MODEL = "model";
+
+      expect(getLLMConfig()).toBe(null);
+    });
+
+    it("should return null for Object.prototype property name as provider", () => {
+      process.env.LLM_PROVIDER = "constructor";
       process.env.LLM_MODEL = "model";
 
       expect(getLLMConfig()).toBe(null);
