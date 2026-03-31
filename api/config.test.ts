@@ -339,7 +339,7 @@ describe("config", () => {
 
       const message = config.PR_MESSAGES.issueNotReadyToImplement(42);
       expect(message).toContain("Issue #42");
-      expect(message).toContain("hasn't passed voting");
+      expect(message).toContain("hasn't been approved for implementation");
       expect(message).toContain(config.SIGNATURE);
     });
 
@@ -349,7 +349,7 @@ describe("config", () => {
       const message = config.PR_MESSAGES.issueReadyNeedsUpdate(42);
       expect(message).toContain("Issue #42");
       expect(message).toContain("opened before approval");
-      expect(message).toContain("fresh post-vote signal");
+      expect(message).toContain("fresh post-approval signal");
       expect(message).toContain("trusted-reviewer approval requirements");
       expect(message).toContain(config.SIGNATURE);
     });

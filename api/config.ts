@@ -609,7 +609,7 @@ This PR isn't tracked yet. Try again after a slot opens.${SIGNATURE}`,
   issueNotReadyToImplement: (issueNumber: number) =>
     `# 🐝 Not Ready Yet ⚠️
 
-Issue #${issueNumber} hasn't passed voting. This PR won't be tracked until it does.${SIGNATURE}`,
+Issue #${issueNumber} hasn't been approved for implementation. This PR won't be tracked until it has.${SIGNATURE}`,
 
   /**
    * Posted to a PR when it links to an issue in a terminal closed state
@@ -624,9 +624,9 @@ Issue #${issueNumber} hasn't passed voting. This PR won't be tracked until it do
   issueReadyNeedsUpdate: (issueNumber: number) =>
     `# 🐝 Update Needed ⏳
 
-Issue #${issueNumber} passed voting, but this PR was opened before approval and was not automatically activated for implementation tracking.
+Issue #${issueNumber} has been approved for implementation, but this PR was opened before approval and was not automatically activated for implementation tracking.
 
-Pre-ready PRs require a fresh post-vote signal so implementation tracking reflects the approved proposal.
+Pre-ready PRs require a fresh post-approval signal so implementation tracking reflects the approved proposal.
 Depending on this repo's intake rules, activate by adding a new commit/comment or by meeting trusted-reviewer approval requirements.${SIGNATURE}`,
 
   /**
