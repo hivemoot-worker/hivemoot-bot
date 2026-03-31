@@ -109,7 +109,8 @@ function getRepoContext(repository: RepoPayload): RepoContext {
 async function notifyAutomergeStatus(
   prs: PROperationsType,
   ref: PRRef,
-  result: AutomergeResult | undefined
+  result: AutomergeResult | undefined,
+  log?: { warn: (msg: string) => void }
 ): Promise<void> {
   if (!result || result.action === "skipped") return;
 
@@ -121,8 +122,10 @@ async function notifyAutomergeStatus(
 
   try {
     await prs.upsertAutomergeStatus(ref, eligible, reason);
-  } catch {
-    // Non-critical: status comment failure must not fail the webhook
+  } catch (error) {
+    log?.warn(
+      `[PR #${ref.prNumber}] Automerge status comment failed: ${(error as Error).message}`
+    );
   }
 }
 
@@ -258,7 +261,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
-        await notifyAutomergeStatus(prs, openedPRRef, openedAutomergeResult);
+        await notifyAutomergeStatus(prs, openedPRRef, openedAutomergeResult, context.log);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR");
@@ -357,7 +360,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
-        await notifyAutomergeStatus(prs, prRef, syncAutomergeResult);
+        await notifyAutomergeStatus(prs, prRef, syncAutomergeResult, context.log);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR update");
@@ -412,7 +415,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
-        await notifyAutomergeStatus(prs, prRef, readyAutomergeResult);
+        await notifyAutomergeStatus(prs, prRef, readyAutomergeResult, context.log);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process ready_for_review");
@@ -785,7 +788,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
-        await notifyAutomergeStatus(prs, reviewRef, reviewAutomergeResult);
+        await notifyAutomergeStatus(prs, reviewRef, reviewAutomergeResult, context.log);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to process PR review");
@@ -842,7 +845,7 @@ export function app(probotApp: Probot): void {
           log: context.log,
           graphql: context.octokit,
         });
-        await notifyAutomergeStatus(prs, dismissedRef, dismissedAutomergeResult);
+        await notifyAutomergeStatus(prs, dismissedRef, dismissedAutomergeResult, context.log);
       }
     } catch (error) {
       context.log.error({ err: error, pr: number, repo: fullName }, "Failed to update leaderboard after review dismissal");
@@ -948,7 +951,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
-          await notifyAutomergeStatus(prs, prRef, checkSuiteAutomergeResult);
+          await notifyAutomergeStatus(prs, prRef, checkSuiteAutomergeResult, context.log);
         } catch (error) {
           context.log.error({ err: error, pr: pr.number, repo: fullName }, "Failed to evaluate merge-readiness after check_suite");
           errors.push(error as Error);
@@ -1027,7 +1030,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
-          await notifyAutomergeStatus(prs, prRef, checkRunAutomergeResult);
+          await notifyAutomergeStatus(prs, prRef, checkRunAutomergeResult, context.log);
 
           if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
             context.log.info(`Retrying queued squash for PR #${pr.number} after check_run in ${fullName}`);
@@ -1134,7 +1137,7 @@ export function app(probotApp: Probot): void {
             log: context.log,
             graphql: context.octokit,
           });
-          await notifyAutomergeStatus(prs, statusRef, statusAutomergeResult);
+          await notifyAutomergeStatus(prs, statusRef, statusAutomergeResult, context.log);
 
           if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
             context.log.info(`Retrying queued squash for PR #${pr.number} after status event in ${fullName}`);
