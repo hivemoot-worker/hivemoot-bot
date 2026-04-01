@@ -380,7 +380,7 @@ export const LEGACY_LABEL_MAP: Record<string, string> = {
  */
 export function isLabelMatch(name: string | undefined, label: string): boolean {
   if (!name) return false;
-  return name === label || LEGACY_LABEL_MAP[name] === label;
+  return name === label || (Object.prototype.hasOwnProperty.call(LEGACY_LABEL_MAP, name) && LEGACY_LABEL_MAP[name] === label);
 }
 
 /**

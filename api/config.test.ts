@@ -185,6 +185,14 @@ describe("config", () => {
       expect(isLabelMatch(undefined, LABELS.DISCUSSION)).toBe(false);
     });
 
+    it("should return false for Object.prototype property names", () => {
+      expect(isLabelMatch("constructor", LABELS.DISCUSSION)).toBe(false);
+      expect(isLabelMatch("hasOwnProperty", LABELS.DISCUSSION)).toBe(false);
+      expect(isLabelMatch("toString", LABELS.VOTING)).toBe(false);
+      expect(isLabelMatch("valueOf", LABELS.IMPLEMENTATION)).toBe(false);
+      expect(isLabelMatch("__proto__", LABELS.READY_TO_IMPLEMENT)).toBe(false);
+    });
+
     it("should return false when legacy name is compared against wrong canonical label", () => {
       // "phase:discussion" maps to LABELS.DISCUSSION, not LABELS.VOTING
       expect(isLabelMatch("phase:discussion", LABELS.VOTING)).toBe(false);
