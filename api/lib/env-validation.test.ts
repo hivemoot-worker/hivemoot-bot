@@ -6,6 +6,7 @@ import {
   getAppId,
   validatePrivateKeyFormat,
   getAppConfig,
+  normalizeEnvString,
 } from "./env-validation.js";
 
 /**
@@ -285,6 +286,104 @@ describe("env-validation", () => {
     it("should use APP_PRIVATE_KEY when PRIVATE_KEY is empty string", () => {
       process.env.APP_ID = "12345";
       process.env.PRIVATE_KEY = "";
+      process.env.APP_PRIVATE_KEY = validPemKey;
+
+      const config = getAppConfig();
+      expect(config.privateKey).toBe(validPemKey);
+    });
+  });
+
+  describe("normalizeEnvString", () => {
+    it("should return undefined for undefined input", () => {
+      expect(normalizeEnvString(undefined)).toBeUndefined();
+    });
+
+    it("should return undefined for empty string", () => {
+      expect(normalizeEnvString("")).toBeUndefined();
+    });
+
+    it("should return undefined for whitespace-only string", () => {
+      expect(normalizeEnvString("   ")).toBeUndefined();
+    });
+
+    it("should trim surrounding whitespace", () => {
+      expect(normalizeEnvString("  hello  ")).toBe("hello");
+    });
+
+    it("should strip matching double quotes", () => {
+      expect(normalizeEnvString('"my-secret"')).toBe("my-secret");
+    });
+
+    it("should strip matching single quotes", () => {
+      expect(normalizeEnvString("'my-secret'")).toBe("my-secret");
+    });
+
+    it("should trim after stripping quotes", () => {
+      expect(normalizeEnvString('"  my-secret  "')).toBe("my-secret");
+    });
+
+    it("should return undefined for quote-only string", () => {
+      expect(normalizeEnvString('""')).toBeUndefined();
+    });
+
+    it("should not strip mismatched quotes", () => {
+      expect(normalizeEnvString('"value')).toBe('"value');
+    });
+
+    it("should preserve internal quotes", () => {
+      expect(normalizeEnvString('key="value"')).toBe('key="value"');
+    });
+  });
+
+  describe("env normalization integration", () => {
+    const validPemKey = "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----";
+
+    it("should accept APP_ID with surrounding quotes", () => {
+      process.env.APP_ID = '"12345"';
+      expect(getAppId()).toBe(12345);
+    });
+
+    it("should accept APP_ID with surrounding whitespace", () => {
+      process.env.APP_ID = "  12345  ";
+      expect(getAppId()).toBe(12345);
+    });
+
+    it("should accept PRIVATE_KEY with surrounding quotes", () => {
+      process.env.PRIVATE_KEY = `"${validPemKey}"`;
+      expect(getPrivateKey()).toBe(validPemKey);
+    });
+
+    it("should accept WEBHOOK_SECRET with surrounding quotes", () => {
+      process.env.APP_ID = "12345";
+      process.env.PRIVATE_KEY = validPemKey;
+      process.env.WEBHOOK_SECRET = '"  my-secret  "';
+
+      const config = getAppConfig(true);
+      expect(config.webhookSecret).toBe("my-secret");
+    });
+
+    it("should reject whitespace-only WEBHOOK_SECRET when required", () => {
+      process.env.APP_ID = "12345";
+      process.env.PRIVATE_KEY = validPemKey;
+      process.env.WEBHOOK_SECRET = "   ";
+
+      const result = validateEnv(true);
+      expect(result.valid).toBe(false);
+      expect(result.missing).toContain("WEBHOOK_SECRET");
+    });
+
+    it("should reject whitespace-only APP_ID", () => {
+      process.env.APP_ID = "   ";
+      process.env.PRIVATE_KEY = validPemKey;
+
+      const result = validateEnv();
+      expect(result.valid).toBe(false);
+      expect(result.missing).toContain("APP_ID");
+    });
+
+    it("should reject whitespace-only PRIVATE_KEY and fall back to APP_PRIVATE_KEY", () => {
+      process.env.APP_ID = "12345";
+      process.env.PRIVATE_KEY = "   ";
       process.env.APP_PRIVATE_KEY = validPemKey;
 
       const config = getAppConfig();
