@@ -74,3 +74,35 @@ export function isAutoMergeNotEnabledError(error: unknown): boolean {
       /not enabled/i.test(String((e as { message?: unknown }).message ?? ""))
   );
 }
+
+/**
+ * Determine whether a GraphQL error means auto-merge is not allowed.
+ *
+ * GitHub returns `GraphqlResponseError` with `errors[].type === "FORBIDDEN"`
+ * when `enablePullRequestAutoMerge` is called but branch protection rules are
+ * not configured on the repository. The type identifier
+ * ("PullRequestAutoMergeNotAllowed") lives in `errors[].type` and does NOT
+ * appear in the top-level `.message`, so string-matching `.message` silently
+ * fails — the same structural bug that was fixed for NotEnabled in #404.
+ *
+ * Uses the same duck-typing on `.name` as `isAutoMergeNotEnabledError` to
+ * handle the dual `@octokit/graphql` version issue (root 7.1.1 vs bundled 9.x).
+ */
+export function isAutoMergeNotAllowedError(error: unknown): boolean {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    (error as { name?: unknown }).name !== "GraphqlResponseError"
+  ) {
+    return false;
+  }
+  const errors = (error as { errors?: unknown }).errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some(
+    (e: unknown) =>
+      typeof e === "object" &&
+      e !== null &&
+      (e as { type?: unknown }).type === "FORBIDDEN" &&
+      /not allowed/i.test(String((e as { message?: unknown }).message ?? ""))
+  );
+}
