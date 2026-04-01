@@ -331,6 +331,14 @@ describe("config", () => {
       expect(message).toContain("👀");
       expect(message).toContain(SIGNATURES.VOTING);
     });
+
+    it("should include multi-reaction disqualification warning", async () => {
+      const config = await import("./config.js");
+
+      const message = config.MESSAGES.votingStart();
+      expect(message).toContain("react once");
+      expect(message).toContain("multiple reactions = no vote");
+    });
   });
 
   describe("PR_MESSAGES", () => {
