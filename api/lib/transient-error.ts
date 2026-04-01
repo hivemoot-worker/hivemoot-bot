@@ -74,3 +74,21 @@ export function isAutoMergeNotEnabledError(error: unknown): boolean {
       /not enabled/i.test(String((e as { message?: unknown }).message ?? ""))
   );
 }
+
+export function isAutoMergeNotAllowedError(error: unknown): boolean {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    (error as { name?: unknown }).name !== "GraphqlResponseError"
+  ) {
+    return false;
+  }
+  const errors = (error as { errors?: unknown }).errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some(
+    (e: unknown) =>
+      typeof e === "object" &&
+      e !== null &&
+      /not allowed/i.test(String((e as { message?: unknown }).message ?? ""))
+  );
+}

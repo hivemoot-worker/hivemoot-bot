@@ -935,8 +935,16 @@ describe("evaluateAutomerge — Phase 2 (dryRun: false)", () => {
   it("warns but continues when enablePullRequestAutoMerge fails (e.g., no branch protection)", async () => {
     const config = makeConfig({ dryRun: false });
     const prs = makeEligiblePROperations();
+    const notAllowedError = new GraphqlResponseError(
+      { url: "https://api.github.com/graphql" },
+      {},
+      {
+        data: null,
+        errors: [{ message: "Pull request auto merge is not allowed for this repository", type: "FORBIDDEN" }],
+      }
+    );
     const mockGraphQL = {
-      graphql: vi.fn().mockRejectedValue(new Error("PullRequestAutoMergeNotAllowed")),
+      graphql: vi.fn().mockRejectedValue(notAllowedError),
     };
     const warnLog = vi.fn();
 
@@ -955,6 +963,9 @@ describe("evaluateAutomerge — Phase 2 (dryRun: false)", () => {
     expect(prs.addLabels).toHaveBeenCalledWith(baseRef, [LABELS.AUTOMERGE]);
     expect(warnLog).toHaveBeenCalledWith(
       expect.stringContaining("Failed to enable GitHub auto-merge")
+    );
+    expect(warnLog).toHaveBeenCalledWith(
+      expect.stringContaining("branch protection")
     );
   });
 
