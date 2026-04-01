@@ -68,6 +68,16 @@ describe("LLM Provider", () => {
       expect(isLLMConfigured()).toBe(true);
     });
 
+    it.each(["constructor", "hasOwnProperty", "toString", "valueOf", "__proto__"])(
+      "should return false for Object.prototype property name: %s",
+      (protoKey) => {
+        process.env.LLM_PROVIDER = protoKey;
+        process.env.LLM_MODEL = "some-model";
+
+        expect(isLLMConfigured()).toBe(false);
+      }
+    );
+
     it("should normalize provider casing and whitespace", () => {
       process.env.LLM_PROVIDER = "  Google ";
       process.env.LLM_MODEL = " gemini-2.0-flash ";
@@ -107,6 +117,16 @@ describe("LLM Provider", () => {
 
       expect(getLLMConfig()).toBe(null);
     });
+
+    it.each(["constructor", "hasOwnProperty", "toString"])(
+      "should return null for Object.prototype property name as provider: %s",
+      (protoKey) => {
+        process.env.LLM_PROVIDER = protoKey;
+        process.env.LLM_MODEL = "model";
+
+        expect(getLLMConfig()).toBeNull();
+      }
+    );
 
     it("should return config with defaults when optional vars not set", () => {
       process.env.LLM_PROVIDER = "anthropic";
