@@ -15,6 +15,7 @@ import {
   evaluateMergeReadiness,
   evaluateAutomerge,
 } from "../../lib/index.js";
+import { PASSING_CHECK_CONCLUSIONS } from "../../lib/merge-readiness.js";
 import {
   getLinkedIssues,
   disablePullRequestAutoMerge,
@@ -938,6 +939,9 @@ export function app(probotApp: Probot): void {
 
     const { owner, repo, fullName } = getRepoContext(context.payload.repository);
     const headSha = context.payload.check_run.head_sha;
+    const conclusion = context.payload.check_run.conclusion as string | undefined;
+
+    const isFailureConclusion = !conclusion || !PASSING_CHECK_CONCLUSIONS.has(conclusion);
 
     try {
       const appId = getAppId();
@@ -954,17 +958,19 @@ export function app(probotApp: Probot): void {
       for (const pr of pull_requests) {
         try {
           const prRef = { owner, repo, prNumber: pr.number };
-          context.log.info(`Evaluating merge-readiness for PR #${pr.number} after check_run in ${fullName}`);
           const currentLabels = await prs.getLabels({ owner, repo, prNumber: pr.number });
-          await evaluateMergeReadiness({
-            prs,
-            ref: prRef,
-            config: repoConfig.governance.pr.mergeReady,
-            trustedReviewers: repoConfig.governance.pr.trustedReviewers,
-            currentLabels,
-            headSha,
-            log: context.log,
-          });
+          if (isFailureConclusion) {
+            context.log.info(`Evaluating merge-readiness for PR #${pr.number} after failed check_run in ${fullName}`);
+            await evaluateMergeReadiness({
+              prs,
+              ref: prRef,
+              config: repoConfig.governance.pr.mergeReady,
+              trustedReviewers: repoConfig.governance.pr.trustedReviewers,
+              currentLabels,
+              headSha,
+              log: context.log,
+            });
+          }
           // CheckRunPullRequest omits draft and mergeable; fetch from REST so the
           // automerge gates can fire correctly on CI completion events.
           let prDraft: boolean | undefined;

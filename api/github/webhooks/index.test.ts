@@ -1904,6 +1904,160 @@ describe("Queen Bot", () => {
       expect(evaluateMergeReadiness).not.toHaveBeenCalled();
     });
 
+    it("should skip merge-readiness on check_run.completed when conclusion is success", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "success" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).not.toHaveBeenCalled();
+    });
+
+    it("should skip merge-readiness on check_run.completed when conclusion is neutral", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "neutral" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).not.toHaveBeenCalled();
+    });
+
+    it("should skip merge-readiness on check_run.completed when conclusion is skipped", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "skipped" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).not.toHaveBeenCalled();
+    });
+
+    it("should call merge-readiness on check_run.completed when conclusion is failure", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "failure" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).toHaveBeenCalled();
+    });
+
+    it("should call merge-readiness on check_run.completed when conclusion is cancelled", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "cancelled" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).toHaveBeenCalled();
+    });
+
+    it("should call merge-readiness on check_run.completed when conclusion is timed_out", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "timed_out" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).toHaveBeenCalled();
+    });
+
+    it("should call merge-readiness on check_run.completed when conclusion is missing", async () => {
+      const { handlers } = createWebhookHarness();
+      const config = {
+        governance: {
+          proposals: { discussion: { exits: [{ type: "manual" }], durationMs: 0 } },
+          pr: { maxPRsPerIssue: 3, trustedReviewers: [], intake: {}, mergeReady: {} },
+        },
+      };
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(config as any);
+
+      await handlers.get("check_run.completed")!({
+        octokit: createPRGuardOctokit(),
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).toHaveBeenCalled();
+    });
+
     it("should skip merge-readiness on status event when pr config is null", async () => {
       const { handlers } = createWebhookHarness();
       vi.mocked(loadRepositoryConfig).mockResolvedValue(nullPrConfig as any);

@@ -88,7 +88,7 @@ export interface PreflightParams {
 // ───────────────────────────────────────────────────────────────────────────────
 
 /** Check run conclusions that count as passing. */
-const PASSING_CHECK_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
+export const PASSING_CHECK_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
 /**
  * Evaluate all preflight checks for a PR without short-circuiting.
