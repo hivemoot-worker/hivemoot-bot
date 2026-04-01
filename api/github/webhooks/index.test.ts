@@ -2151,7 +2151,7 @@ describe("Queen Bot", () => {
       default_branch: "main",
     };
 
-    const mkLog = () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn() });
+    const mkLog = () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() });
 
     const phase2Config = {
       governance: {
@@ -2582,6 +2582,78 @@ describe("Queen Bot", () => {
       });
 
       expect(log.warn).not.toHaveBeenCalled();
+    });
+
+    it.each(["success", "neutral", "skipped"] as const)(
+      "check_run.completed: skips merge-readiness for passing conclusion (%s)",
+      async (conclusion) => {
+        const { handlers } = createWebhookHarness();
+        vi.mocked(loadRepositoryConfig).mockResolvedValue(prConfig as any);
+
+        const octokit = mkOctokit();
+        octokit.rest.issues.get = vi.fn().mockResolvedValue({
+          data: { labels: [] },
+        });
+
+        await handlers.get("check_run.completed")!({
+          octokit,
+          log: mkLog(),
+          payload: {
+            check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion },
+            repository: testRepo,
+          },
+        });
+
+        expect(evaluateMergeReadiness).not.toHaveBeenCalled();
+        expect(evaluateAutomerge).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["failure", "cancelled", "timed_out", "action_required"] as const)(
+      "check_run.completed: evaluates merge-readiness for failure conclusion (%s)",
+      async (conclusion) => {
+        const { handlers } = createWebhookHarness();
+        vi.mocked(loadRepositoryConfig).mockResolvedValue(prConfig as any);
+        vi.mocked(evaluateMergeReadiness).mockResolvedValue({ action: "skipped", reason: "test" });
+
+        const octokit = mkOctokit();
+        octokit.rest.issues.get = vi.fn().mockResolvedValue({
+          data: { labels: [] },
+        });
+
+        await handlers.get("check_run.completed")!({
+          octokit,
+          log: mkLog(),
+          payload: {
+            check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion },
+            repository: testRepo,
+          },
+        });
+
+        expect(evaluateMergeReadiness).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("check_run.completed: evaluates merge-readiness when conclusion is missing (fail-closed)", async () => {
+      const { handlers } = createWebhookHarness();
+      vi.mocked(loadRepositoryConfig).mockResolvedValue(prConfig as any);
+      vi.mocked(evaluateMergeReadiness).mockResolvedValue({ action: "skipped", reason: "test" });
+
+      const octokit = mkOctokit();
+      octokit.rest.issues.get = vi.fn().mockResolvedValue({
+        data: { labels: [] },
+      });
+
+      await handlers.get("check_run.completed")!({
+        octokit,
+        log: mkLog(),
+        payload: {
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123" },
+          repository: testRepo,
+        },
+      });
+
+      expect(evaluateMergeReadiness).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -53,6 +53,21 @@ const REVIEW_STATE = {
   APPROVED: "approved",
 } as const;
 
+/**
+ * Check run conclusions that indicate a definitive failure.
+ *
+ * Only these conclusions trigger immediate merge-readiness re-evaluation
+ * in the check_run.completed handler. Passing conclusions (success, neutral,
+ * skipped) are deferred to check_suite.completed to prevent label flapping
+ * while other check runs are still in-progress.
+ */
+const FAILURE_CHECK_CONCLUSIONS = new Set([
+  "failure",
+  "cancelled",
+  "timed_out",
+  "action_required",
+]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -929,13 +944,20 @@ export function app(probotApp: Probot): void {
 
   /**
    * Handle individual check run completion — re-evaluate merge-readiness and retry queued squash.
-   * Catches granular CI updates that check_suite.completed may not cover
-   * (e.g., individual required checks completing at different times).
+   *
+   * Only re-evaluates merge-readiness when the check run conclusion is a definitive
+   * failure (failure, cancelled, timed_out, action_required). Passing conclusions
+   * (success, neutral, skipped) are deferred to check_suite.completed to prevent
+   * label flapping while other check runs are still in-progress.
+   *
+   * The squash retry runs regardless of conclusion because retryQueuedSquash
+   * validates CI status internally before attempting.
    */
   probotApp.on("check_run.completed", async (context) => {
     const { pull_requests } = context.payload.check_run;
     if (!pull_requests || pull_requests.length === 0) return;
 
+    const conclusion = context.payload.check_run.conclusion;
     const { owner, repo, fullName } = getRepoContext(context.payload.repository);
     const headSha = context.payload.check_run.head_sha;
 
@@ -950,45 +972,51 @@ export function app(probotApp: Probot): void {
 
       if (!repoConfig.governance.pr) return;
 
+      const isFailureConclusion = !conclusion || FAILURE_CHECK_CONCLUSIONS.has(conclusion);
+
       const errors: Error[] = [];
       for (const pr of pull_requests) {
         try {
           const prRef = { owner, repo, prNumber: pr.number };
-          context.log.info(`Evaluating merge-readiness for PR #${pr.number} after check_run in ${fullName}`);
           const currentLabels = await prs.getLabels({ owner, repo, prNumber: pr.number });
-          await evaluateMergeReadiness({
-            prs,
-            ref: prRef,
-            config: repoConfig.governance.pr.mergeReady,
-            trustedReviewers: repoConfig.governance.pr.trustedReviewers,
-            currentLabels,
-            headSha,
-            log: context.log,
-          });
-          // CheckRunPullRequest omits draft and mergeable; fetch from REST so the
-          // automerge gates can fire correctly on CI completion events.
-          let prDraft: boolean | undefined;
-          let prMergeable: boolean | null | undefined;
-          let checkRunPRNodeId: string | undefined;
-          if (repoConfig.governance.pr.automerge) {
-            const prState = await prs.get(prRef);
-            prDraft = prState.draft;
-            prMergeable = prState.mergeable;
-            checkRunPRNodeId = prState.nodeId;
+
+          if (isFailureConclusion) {
+            context.log.info(`Evaluating merge-readiness for PR #${pr.number} after check_run (${conclusion ?? "none"}) in ${fullName}`);
+            await evaluateMergeReadiness({
+              prs,
+              ref: prRef,
+              config: repoConfig.governance.pr.mergeReady,
+              trustedReviewers: repoConfig.governance.pr.trustedReviewers,
+              currentLabels,
+              headSha,
+              log: context.log,
+            });
+
+            let prDraft: boolean | undefined;
+            let prMergeable: boolean | null | undefined;
+            let checkRunPRNodeId: string | undefined;
+            if (repoConfig.governance.pr.automerge) {
+              const prState = await prs.get(prRef);
+              prDraft = prState.draft;
+              prMergeable = prState.mergeable;
+              checkRunPRNodeId = prState.nodeId;
+            }
+            await evaluateAutomerge({
+              prs,
+              ref: prRef,
+              config: repoConfig.governance.pr.automerge,
+              trustedReviewers: repoConfig.governance.pr.trustedReviewers,
+              nodeId: checkRunPRNodeId,
+              currentLabels,
+              headSha,
+              draft: prDraft,
+              mergeable: prMergeable,
+              log: context.log,
+              graphql: context.octokit,
+            });
+          } else {
+            context.log.debug(`Skipping merge-readiness for PR #${pr.number} after passing check_run (${conclusion}) — deferring to check_suite.completed`);
           }
-          await evaluateAutomerge({
-            prs,
-            ref: prRef,
-            config: repoConfig.governance.pr.automerge,
-            trustedReviewers: repoConfig.governance.pr.trustedReviewers,
-            nodeId: checkRunPRNodeId,
-            currentLabels,
-            headSha,
-            draft: prDraft,
-            mergeable: prMergeable,
-            log: context.log,
-            graphql: context.octokit,
-          });
 
           if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
             context.log.info(`Retrying queued squash for PR #${pr.number} after check_run in ${fullName}`);
