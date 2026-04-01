@@ -49,6 +49,10 @@ function normalizeProvider(provider: string | undefined): LLMProvider | undefine
     return undefined;
   }
 
+  if (!Object.hasOwn(PROVIDER_ALIASES, normalized)) {
+    return undefined;
+  }
+
   return PROVIDER_ALIASES[normalized];
 }
 
