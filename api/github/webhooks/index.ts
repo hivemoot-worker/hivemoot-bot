@@ -658,16 +658,26 @@ export function app(probotApp: Probot): void {
         await issues.close(issueRef, "completed");
         await issues.comment(issueRef, PR_MESSAGES.issueImplemented(number));
 
-        // Close competing PRs
+        // Close competing PRs (per-PR error isolation — partial failure is unrecoverable
+        // by webhook redelivery since the issue label has already changed to IMPLEMENTED)
         const competingPRs = await getOpenPRsForIssue(context.octokit, owner, repo, linkedIssue.number);
+        const closeErrors: Error[] = [];
         for (const competingPR of competingPRs) {
           if (competingPR.number !== number) {
-            const prRef = { owner, repo, prNumber: competingPR.number };
-            await prs.close(prRef);
-            await prs.comment(prRef, PR_MESSAGES.prSuperseded(number));
-            await prs.removeGovernanceLabels(prRef);
-            context.log.info(`Closed competing PR #${competingPR.number}`);
+            try {
+              const prRef = { owner, repo, prNumber: competingPR.number };
+              await prs.close(prRef);
+              await prs.comment(prRef, PR_MESSAGES.prSuperseded(number));
+              await prs.removeGovernanceLabels(prRef);
+              context.log.info(`Closed competing PR #${competingPR.number}`);
+            } catch (error) {
+              context.log.error({ err: error, competingPR: competingPR.number }, "Failed to close competing PR");
+              closeErrors.push(error as Error);
+            }
           }
+        }
+        if (closeErrors.length > 0) {
+          throw new AggregateError(closeErrors, `${closeErrors.length} competing PR(s) failed to close`);
         }
       }
     } catch (error) {

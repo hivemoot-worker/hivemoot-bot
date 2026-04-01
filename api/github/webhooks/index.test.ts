@@ -1555,6 +1555,111 @@ describe("Queen Bot", () => {
         : Number.MAX_SAFE_INTEGER;
       expect(closeCallOrder).toBeLessThan(supersededCallOrder);
     });
+
+    it("should continue closing remaining competing PRs when one fails", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("pull_request.closed");
+      expect(handler).toBeDefined();
+
+      const octokit = createClosedPROctokit();
+
+      let updateCallCount = 0;
+      octokit.rest.pulls.update.mockImplementation(() => {
+        updateCallCount++;
+        if (updateCallCount === 1) {
+          return Promise.reject(new Error("rate limit"));
+        }
+        return Promise.resolve({});
+      });
+
+      const log = { info: vi.fn(), error: vi.fn() };
+
+      vi.mocked(getLinkedIssues).mockResolvedValueOnce([
+        {
+          number: 79,
+          title: "implemented issue",
+          state: "OPEN",
+          labels: { nodes: [{ name: LABELS.READY_TO_IMPLEMENT }] },
+        },
+      ] as any);
+      vi.mocked(getOpenPRsForIssue).mockResolvedValueOnce([
+        { number: 22, state: "OPEN", title: "winner" },
+        { number: 23, state: "OPEN", title: "competing-fails" },
+        { number: 24, state: "OPEN", title: "competing-succeeds" },
+      ] as any);
+
+      // Handler throws AggregateError because PR #23 failed, but PR #24
+      // should still have been processed before the throw.
+      await expect(
+        handler!({
+          octokit,
+          log,
+          payload: {
+            pull_request: { number: 22, merged: true },
+            repository: {
+              name: "test-repo",
+              full_name: "hivemoot/test-repo",
+              owner: { login: "hivemoot" },
+            },
+          },
+        })
+      ).rejects.toThrow("1 competing PR(s) failed to close");
+
+      // PR #23 close failed but PR #24 should still be closed
+      expect(octokit.rest.pulls.update).toHaveBeenCalledWith(
+        expect.objectContaining({ pull_number: 24, state: "closed" })
+      );
+      // PR #24 superseded comment should be posted
+      const pr24Comment = octokit.rest.issues.createComment.mock.calls.find(
+        (call: [{ issue_number: number; body: string }]) =>
+          call[0].issue_number === 24 && call[0].body.includes("Superseded")
+      );
+      expect(pr24Comment).toBeDefined();
+      // Error should be logged for the failed PR
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ competingPR: 23 }),
+        "Failed to close competing PR"
+      );
+    });
+
+    it("should throw AggregateError when competing PR closure partially fails", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("pull_request.closed");
+      expect(handler).toBeDefined();
+
+      const octokit = createClosedPROctokit();
+      octokit.rest.pulls.update.mockRejectedValue(new Error("rate limit"));
+
+      const log = { info: vi.fn(), error: vi.fn() };
+
+      vi.mocked(getLinkedIssues).mockResolvedValueOnce([
+        {
+          number: 79,
+          title: "implemented issue",
+          state: "OPEN",
+          labels: { nodes: [{ name: LABELS.READY_TO_IMPLEMENT }] },
+        },
+      ] as any);
+      vi.mocked(getOpenPRsForIssue).mockResolvedValueOnce([
+        { number: 22, state: "OPEN", title: "winner" },
+        { number: 23, state: "OPEN", title: "competing" },
+      ] as any);
+
+      await expect(
+        handler!({
+          octokit,
+          log,
+          payload: {
+            pull_request: { number: 22, merged: true },
+            repository: {
+              name: "test-repo",
+              full_name: "hivemoot/test-repo",
+              owner: { login: "hivemoot" },
+            },
+          },
+        })
+      ).rejects.toThrow("1 competing PR(s) failed to close");
+    });
   });
 
   describe("Health Check Endpoint", () => {
