@@ -747,6 +747,19 @@ export function isDecisive(votes: VoteCounts): boolean {
 }
 
 /**
+ * Check if votes resolve to the manual maintainer-decision path.
+ *
+ * This is narrower than isDecisive(): it excludes the distinct
+ * needs-human-input and needs-more-discussion outcomes, which each have
+ * their own labels and follow-up handling.
+ */
+export function isReadyOrRejectedOutcome(votes: VoteCounts): boolean {
+  if (votes.eyes > votes.thumbsUp + votes.thumbsDown + votes.confused) return false;
+  if (votes.confused > votes.thumbsUp + votes.thumbsDown) return false;
+  return votes.thumbsUp !== votes.thumbsDown;
+}
+
+/**
  * Check whether a voting exit is eligible based on validated votes.
  *
  * Applies quorum (minVoters), required voters participation, and

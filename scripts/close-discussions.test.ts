@@ -503,7 +503,7 @@ describe("close-discussions script", () => {
     const owner = "test-org";
     const repoName = "test-repo";
 
-    it("should replace decisive manual voting issues with awaiting-decision", async () => {
+    it("should replace ready/rejected manual voting issues with awaiting-decision", async () => {
       const mockIssues = {
         findVotingCommentId: vi.fn().mockResolvedValue(501),
         getValidatedVoteCounts: vi.fn().mockResolvedValue({
@@ -560,6 +560,80 @@ describe("close-discussions script", () => {
           votes: { thumbsUp: 1, thumbsDown: 1, confused: 0, eyes: 0 },
           voters: ["alice", "bob"],
           participants: ["alice", "bob"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 10 }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        makeRepoConfig("manual"),
+      );
+
+      expect(count).toBe(0);
+      expect(mockIssues.addLabels).not.toHaveBeenCalled();
+      expect(mockIssues.removeLabel).not.toHaveBeenCalled();
+    });
+
+    it("should ignore manual voting issues that need human input", async () => {
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(501),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 1, thumbsDown: 1, confused: 0, eyes: 3 },
+          voters: ["alice", "bob", "carol", "dan", "erin"],
+          participants: ["alice", "bob", "carol", "dan", "erin"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 10 }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        makeRepoConfig("manual"),
+      );
+
+      expect(count).toBe(0);
+      expect(mockIssues.addLabels).not.toHaveBeenCalled();
+      expect(mockIssues.removeLabel).not.toHaveBeenCalled();
+    });
+
+    it("should ignore manual voting issues that need more discussion", async () => {
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(501),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 1, thumbsDown: 1, confused: 3, eyes: 0 },
+          voters: ["alice", "bob", "carol", "dan", "erin"],
+          participants: ["alice", "bob", "carol", "dan", "erin"],
         }),
         addLabels: vi.fn().mockResolvedValue(undefined),
         removeLabel: vi.fn().mockResolvedValue(undefined),

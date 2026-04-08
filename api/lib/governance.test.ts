@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GovernanceService, createGovernanceService, isUnanimous, isDecisive, isExitEligible, isDiscussionExitEligible, type EndVotingOptions } from "./governance.js";
+import {
+  GovernanceService,
+  createGovernanceService,
+  isUnanimous,
+  isDecisive,
+  isReadyOrRejectedOutcome,
+  isExitEligible,
+  isDiscussionExitEligible,
+  type EndVotingOptions,
+} from "./governance.js";
 import type { DiscussionExit, VotingExit } from "./repo-config.js";
 import type { IssueOperations } from "./github-client.js";
 import type { IssueRef, VoteCounts, ValidatedVoteResult } from "./types.js";
@@ -1137,6 +1146,28 @@ describe("isDecisive", () => {
 
   it("should return false when tied with non-majority confused", () => {
     expect(isDecisive({ thumbsUp: 3, thumbsDown: 3, confused: 2, eyes: 0 })).toBe(false);
+  });
+});
+
+describe("isReadyOrRejectedOutcome", () => {
+  it("should return true when thumbsUp wins", () => {
+    expect(isReadyOrRejectedOutcome({ thumbsUp: 3, thumbsDown: 1, confused: 0, eyes: 0 })).toBe(true);
+  });
+
+  it("should return true when thumbsDown wins", () => {
+    expect(isReadyOrRejectedOutcome({ thumbsUp: 1, thumbsDown: 3, confused: 0, eyes: 0 })).toBe(true);
+  });
+
+  it("should return false when confused majority needs more discussion", () => {
+    expect(isReadyOrRejectedOutcome({ thumbsUp: 1, thumbsDown: 1, confused: 3, eyes: 0 })).toBe(false);
+  });
+
+  it("should return false when eyes majority needs human input", () => {
+    expect(isReadyOrRejectedOutcome({ thumbsUp: 1, thumbsDown: 1, confused: 1, eyes: 5 })).toBe(false);
+  });
+
+  it("should return false for ties", () => {
+    expect(isReadyOrRejectedOutcome({ thumbsUp: 3, thumbsDown: 3, confused: 0, eyes: 0 })).toBe(false);
   });
 });
 

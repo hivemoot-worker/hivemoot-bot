@@ -27,7 +27,7 @@ import { NOTIFICATION_TYPES } from "../api/lib/bot-comments.js";
 import { processImplementationIntake } from "../api/lib/implementation-intake.js";
 import { getLinkedIssues } from "../api/lib/graphql-queries.js";
 import { runForAllRepositories, runIfMain } from "./shared/run-installations.js";
-import { isDecisive, isExitEligible, isDiscussionExitEligible } from "../api/lib/governance.js";
+import { isReadyOrRejectedOutcome, isExitEligible, isDiscussionExitEligible } from "../api/lib/governance.js";
 import type {
   Repository,
   Issue,
@@ -684,7 +684,7 @@ export async function reconcileUnlabeledIssues(
  * In manual-mode voting, the bot should not auto-transition to the next phase,
  * but it should surface the issue for maintainers once the tally is decisive.
  * This pass replaces `hivemoot:voting` / `hivemoot:extended-voting` with
- * `hivemoot:awaiting-decision` when the vote is no longer tied.
+ * `hivemoot:awaiting-decision` when the vote resolves to ready/rejected.
  */
 export async function reconcileManualDecisionIssues(
   octokit: InstanceType<typeof Octokit>,
@@ -777,7 +777,7 @@ async function reconcileManualDecisionPhase(
           }
 
           const validated = await issues.getValidatedVoteCounts(ref, commentId);
-          if (!isDecisive(validated.votes)) {
+          if (!isReadyOrRejectedOutcome(validated.votes)) {
             continue;
           }
 
