@@ -159,7 +159,7 @@ export interface RepoConfigFile {
       };
     };
     pr?: {
-      staleDays?: number;
+      staleDays?: number | null;
       maxPRsPerIssue?: number;
       trustedReviewers?: unknown;
       intake?: unknown;
