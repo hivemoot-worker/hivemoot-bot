@@ -82,6 +82,17 @@ export function hasAutoExits(exits: Array<{ type: ExitType }>): boolean {
 }
 
 /**
+ * Whether a phase resolved to manual-only exits in EffectiveConfig.
+ *
+ * repo-config parsing collapses invalid mixed manual+auto phase configs before
+ * they reach the scheduler, so awaiting-decision reconciliation only applies
+ * to phases that are fully manual here.
+ */
+export function isManualOnlyPhase(exits: Array<{ type: ExitType }>): boolean {
+  return exits.length > 0 && exits.every((exit) => exit.type === "manual");
+}
+
+/**
  * Whether any governance phase has automatic exits enabled.
  */
 export function hasAutomaticGovernancePhases(config: EffectiveConfig): boolean {
@@ -685,7 +696,7 @@ export async function reconcileManualDecisionIssues(
 ): Promise<number> {
   let reconciledCount = 0;
 
-  if (!hasAutoExits(config.governance.proposals.voting.exits)) {
+  if (isManualOnlyPhase(config.governance.proposals.voting.exits)) {
     reconciledCount += await reconcileManualDecisionPhase(
       octokit,
       owner,
@@ -696,7 +707,7 @@ export async function reconcileManualDecisionIssues(
     );
   }
 
-  if (!hasAutoExits(config.governance.proposals.extendedVoting.exits)) {
+  if (isManualOnlyPhase(config.governance.proposals.extendedVoting.exits)) {
     reconciledCount += await reconcileManualDecisionPhase(
       octokit,
       owner,

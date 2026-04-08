@@ -66,6 +66,7 @@ import {
   makeDiscussionEarlyCheck,
   processIssuePhase,
   hasAutoExits,
+  isManualOnlyPhase,
   hasAutomaticGovernancePhases,
   processRepository,
   reconcileMissingVotingComments,
@@ -145,6 +146,16 @@ describe("close-discussions script", () => {
 
     it("should return false when all exits are manual", () => {
       expect(hasAutoExits([{ type: "manual" }])).toBe(false);
+    });
+  });
+
+  describe("isManualOnlyPhase", () => {
+    it("should return true when all exits are manual", () => {
+      expect(isManualOnlyPhase([{ type: "manual" }])).toBe(true);
+    });
+
+    it("should return false when any auto exit exists", () => {
+      expect(isManualOnlyPhase([{ type: "manual" }, { type: "auto" }])).toBe(false);
     });
   });
 
@@ -621,6 +632,64 @@ describe("close-discussions script", () => {
       expect(mockIssues.removeLabel).toHaveBeenCalledWith(
         { owner, repo: repoName, issueNumber: 10 },
         LABELS.VOTING,
+      );
+    });
+
+    it("should still reconcile manual extended voting when standard voting is automatic", async () => {
+      const config = makeRepoConfig("auto");
+      config.governance.proposals.extendedVoting = {
+        exits: [{ type: "manual" }],
+        durationMs: 0,
+      };
+
+      const mockIssues = {
+        findVotingCommentId: vi.fn().mockResolvedValue(808),
+        getValidatedVoteCounts: vi.fn().mockResolvedValue({
+          votes: { thumbsUp: 4, thumbsDown: 1, confused: 0, eyes: 0 },
+          voters: ["alice", "bob", "carol", "dan", "erin"],
+          participants: ["alice", "bob", "carol", "dan", "erin"],
+        }),
+        addLabels: vi.fn().mockResolvedValue(undefined),
+        removeLabel: vi.fn().mockResolvedValue(undefined),
+      } as any;
+
+      const fakeOctokit = {
+        rest: { issues: { listForRepo: vi.fn() } },
+        paginate: {
+          iterator: vi.fn().mockImplementation((_method, params: { labels?: string }) => {
+            if (params.labels === LABELS.VOTING) {
+              return buildIterator([[{ number: 10, labels: [{ name: LABELS.VOTING }] }]]);
+            }
+            if (params.labels === LABELS.EXTENDED_VOTING) {
+              return buildIterator([[{ number: 20, labels: [{ name: LABELS.EXTENDED_VOTING }] }]]);
+            }
+            return buildIterator([[]]);
+          }),
+        },
+      } as any;
+
+      const count = await reconcileManualDecisionIssues(
+        fakeOctokit,
+        owner,
+        repoName,
+        mockIssues,
+        config,
+      );
+
+      expect(count).toBe(1);
+      expect(mockIssues.findVotingCommentId).toHaveBeenCalledTimes(1);
+      expect(mockIssues.findVotingCommentId).toHaveBeenCalledWith({
+        owner,
+        repo: repoName,
+        issueNumber: 20,
+      });
+      expect(mockIssues.addLabels).toHaveBeenCalledWith(
+        { owner, repo: repoName, issueNumber: 20 },
+        [LABELS.AWAITING_DECISION],
+      );
+      expect(mockIssues.removeLabel).toHaveBeenCalledWith(
+        { owner, repo: repoName, issueNumber: 20 },
+        LABELS.EXTENDED_VOTING,
       );
     });
   });
