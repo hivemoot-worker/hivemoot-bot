@@ -673,8 +673,46 @@ describe("Queen Bot", () => {
       );
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
       expect(log.info).toHaveBeenCalledWith(
-        expect.stringContaining("Cleared awaiting-decision label"),
+        expect.stringContaining(`Cleared ${LABELS.AWAITING_DECISION} label`),
       );
+    });
+
+    it("should also clear stale manual phase labels when a terminal governance label is added", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("issues.labeled")!;
+      const mockOctokit = createLabeledMockOctokit();
+
+      await handler({
+        payload: {
+          label: { name: LABELS.READY_TO_IMPLEMENT },
+          issue: {
+            number: 42,
+            labels: [
+              { name: LABELS.AWAITING_DECISION },
+              { name: LABELS.VOTING },
+              { name: LABELS.READY_TO_IMPLEMENT },
+            ],
+          },
+          sender: { type: "User", login: "alice" },
+          repository: { name: "test-repo", full_name: "hivemoot/test-repo", owner: { login: "hivemoot" } },
+        },
+        octokit: mockOctokit,
+        log: { info: vi.fn(), error: vi.fn() },
+      });
+
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.AWAITING_DECISION,
+        }),
+      );
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.VOTING,
+        }),
+      );
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledTimes(2);
     });
 
     it("should clear awaiting-decision for string-label payloads with installation context", async () => {
@@ -733,6 +771,50 @@ describe("Queen Bot", () => {
       expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
     });
 
+    it("should drop the stale previous phase label when manual voting is restarted", async () => {
+      const { handlers } = createWebhookHarness();
+      const handler = handlers.get("issues.labeled")!;
+      const mockOctokit = createLabeledMockOctokit();
+
+      await handler({
+        payload: {
+          label: { name: LABELS.VOTING },
+          issue: {
+            number: 42,
+            labels: [
+              { name: LABELS.AWAITING_DECISION },
+              { name: LABELS.VOTING },
+              { name: LABELS.EXTENDED_VOTING },
+            ],
+          },
+          sender: { type: "Bot", login: "hivemoot-bot[bot]" },
+          repository: { name: "test-repo", full_name: "hivemoot/test-repo", owner: { login: "hivemoot" } },
+        },
+        octokit: mockOctokit,
+        log: { info: vi.fn(), error: vi.fn() },
+      });
+
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.AWAITING_DECISION,
+        }),
+      );
+      expect(mockOctokit.rest.issues.removeLabel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.EXTENDED_VOTING,
+        }),
+      );
+      expect(mockOctokit.rest.issues.removeLabel).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          issue_number: 42,
+          name: LABELS.VOTING,
+        }),
+      );
+      expect(mockOctokit.rest.issues.createComment).not.toHaveBeenCalled();
+    });
+
     it("should propagate errors when awaiting-decision cleanup fails", async () => {
       const { handlers } = createWebhookHarness();
       const handler = handlers.get("issues.labeled")!;
@@ -758,7 +840,7 @@ describe("Queen Bot", () => {
 
       expect(log.error).toHaveBeenCalledWith(
         expect.objectContaining({ issue: 42 }),
-        expect.stringContaining("Failed to clear awaiting-decision label"),
+        expect.stringContaining(`Failed to clear ${LABELS.AWAITING_DECISION} label`),
       );
     });
 

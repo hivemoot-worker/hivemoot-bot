@@ -1142,11 +1142,14 @@ export function app(probotApp: Probot): void {
   probotApp.on("issues.labeled", async (context) => {
     const { label, issue, sender } = context.payload;
     const labeledName = label?.name;
-    const issueHasAwaitingDecision = Array.isArray(issue.labels)
-      && issue.labels.some((issueLabel) => {
-        const issueLabelName = typeof issueLabel === "string" ? issueLabel : issueLabel?.name;
-        return isLabelMatch(issueLabelName, LABELS.AWAITING_DECISION);
-      });
+    const issueLabelNames = Array.isArray(issue.labels)
+      ? issue.labels
+          .map((issueLabel) => typeof issueLabel === "string" ? issueLabel : issueLabel?.name)
+          .filter((issueLabelName): issueLabelName is string => Boolean(issueLabelName))
+      : [];
+    const issueHasAwaitingDecision = issueLabelNames.some((issueLabelName) => {
+      return isLabelMatch(issueLabelName, LABELS.AWAITING_DECISION);
+    });
     const clearsAwaitingDecision = issueHasAwaitingDecision && [
       LABELS.DISCUSSION,
       LABELS.VOTING,
@@ -1157,6 +1160,14 @@ export function app(probotApp: Probot): void {
       LABELS.NEEDS_HUMAN,
       LABELS.IMPLEMENTED,
     ].some((candidate) => isLabelMatch(labeledName, candidate));
+    const staleManualPhaseLabels = clearsAwaitingDecision
+      ? [LABELS.VOTING, LABELS.EXTENDED_VOTING].filter((candidate) => {
+          if (isLabelMatch(labeledName, candidate)) {
+            return false;
+          }
+          return issueLabelNames.some((issueLabelName) => isLabelMatch(issueLabelName, candidate));
+        })
+      : [];
     const shouldPostManualVotingComment = isLabelMatch(labeledName, LABELS.VOTING) && sender.type !== "Bot";
 
     if (!shouldPostManualVotingComment && !clearsAwaitingDecision) return;
@@ -1189,15 +1200,17 @@ export function app(probotApp: Probot): void {
     }
 
     if (clearsAwaitingDecision) {
-      try {
-        await issues.removeLabel(ref, LABELS.AWAITING_DECISION);
-        context.log.info(`Cleared awaiting-decision label for issue #${issue.number} in ${fullName}`);
-      } catch (error) {
-        context.log.error(
-          { err: error, issue: issue.number, repo: fullName },
-          "Failed to clear awaiting-decision label after issue label change",
-        );
-        errors.push(error as Error);
+      for (const labelToClear of [LABELS.AWAITING_DECISION, ...staleManualPhaseLabels]) {
+        try {
+          await issues.removeLabel(ref, labelToClear);
+          context.log.info(`Cleared ${labelToClear} label for issue #${issue.number} in ${fullName}`);
+        } catch (error) {
+          context.log.error(
+            { err: error, issue: issue.number, repo: fullName },
+            `Failed to clear ${labelToClear} label after issue label change`,
+          );
+          errors.push(error as Error);
+        }
       }
     }
 
