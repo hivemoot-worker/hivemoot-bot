@@ -106,10 +106,12 @@ function createCheckContext(options?: {
   event: "check_suite.completed" | "check_run.completed";
   headSha?: string;
   pullRequests?: Array<{ number: number }>;
+  conclusion?: string;
 }) {
   const event = options?.event ?? "check_suite.completed";
   const headSha = options?.headSha ?? "abc123";
   const pullRequests = options?.pullRequests ?? [];
+  const conclusion = options?.conclusion ?? "failure";
 
   return {
     payload: {
@@ -121,6 +123,7 @@ function createCheckContext(options?: {
       [event === "check_suite.completed" ? "check_suite" : "check_run"]: {
         head_sha: headSha,
         pull_requests: pullRequests,
+        ...(event === "check_run.completed" ? { conclusion } : {}),
       },
     },
     log: {
@@ -302,6 +305,7 @@ describe("status webhook handler", () => {
       event: "check_run.completed",
       headSha: "run-sha",
       pullRequests: [{ number: 55 }, { number: 89 }],
+      conclusion: "failure",
     });
 
     await expect(handler!(context)).rejects.toThrow(
@@ -315,6 +319,24 @@ describe("status webhook handler", () => {
       }),
       "Failed to evaluate merge-readiness after check_run"
     );
+  });
+
+  it("defers merge automation for successful intermediate check_run conclusions", async () => {
+    const { handlers } = createWebhookHarness();
+    const handler = handlers.get("check_run.completed");
+    expect(handler).toBeDefined();
+
+    const context = createCheckContext({
+      event: "check_run.completed",
+      headSha: "run-sha",
+      pullRequests: [{ number: 55 }],
+      conclusion: "success",
+    });
+
+    await handler!(context);
+
+    expect(mocks.evaluateMergeReadiness).not.toHaveBeenCalled();
+    expect(mocks.evaluateAutomerge).not.toHaveBeenCalled();
   });
 
   it("retries queued squash for pull requests carrying the squash-queued label after status events", async () => {
@@ -374,6 +396,7 @@ describe("status webhook handler", () => {
       event: "check_run.completed",
       headSha: "run-sha",
       pullRequests: [{ number: 55 }, { number: 89 }],
+      conclusion: "success",
     });
 
     await handler!(context);

@@ -53,6 +53,16 @@ const REVIEW_STATE = {
   APPROVED: "approved",
 } as const;
 
+/** Completed check_run conclusions that should immediately strip merge automation labels */
+const FAILING_CHECK_RUN_CONCLUSIONS = new Set([
+  "action_required",
+  "cancelled",
+  "failure",
+  "stale",
+  "startup_failure",
+  "timed_out",
+]);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -928,16 +938,22 @@ export function app(probotApp: Probot): void {
   });
 
   /**
-   * Handle individual check run completion — re-evaluate merge-readiness and retry queued squash.
-   * Catches granular CI updates that check_suite.completed may not cover
-   * (e.g., individual required checks completing at different times).
+   * Handle individual check run completion.
+   *
+   * Only terminal failing conclusions should re-evaluate merge automation labels.
+   * Successful intermediate runs defer that work to check_suite.completed so
+   * merge-ready/automerge labels do not flap while other checks are still running.
+   *
+   * Queued squash retries still run on every completion event because that flow is
+   * intentionally edge-triggered on granular CI updates.
    */
   probotApp.on("check_run.completed", async (context) => {
-    const { pull_requests } = context.payload.check_run;
+    const { pull_requests, conclusion } = context.payload.check_run;
     if (!pull_requests || pull_requests.length === 0) return;
 
     const { owner, repo, fullName } = getRepoContext(context.payload.repository);
     const headSha = context.payload.check_run.head_sha;
+    const shouldEvaluateMergeAutomation = FAILING_CHECK_RUN_CONCLUSIONS.has(conclusion ?? "");
 
     try {
       const appId = getAppId();
@@ -950,47 +966,63 @@ export function app(probotApp: Probot): void {
 
       if (!repoConfig.governance.pr) return;
 
+      if (!shouldEvaluateMergeAutomation) {
+        context.log.debug?.(
+          `Deferring merge automation after check_run conclusion ${conclusion ?? "unknown"} in ${fullName}`
+        );
+      }
+
       const errors: Error[] = [];
       for (const pr of pull_requests) {
         try {
           const prRef = { owner, repo, prNumber: pr.number };
-          context.log.info(`Evaluating merge-readiness for PR #${pr.number} after check_run in ${fullName}`);
-          const currentLabels = await prs.getLabels({ owner, repo, prNumber: pr.number });
-          await evaluateMergeReadiness({
-            prs,
-            ref: prRef,
-            config: repoConfig.governance.pr.mergeReady,
-            trustedReviewers: repoConfig.governance.pr.trustedReviewers,
-            currentLabels,
-            headSha,
-            log: context.log,
-          });
-          // CheckRunPullRequest omits draft and mergeable; fetch from REST so the
-          // automerge gates can fire correctly on CI completion events.
-          let prDraft: boolean | undefined;
-          let prMergeable: boolean | null | undefined;
-          let checkRunPRNodeId: string | undefined;
-          if (repoConfig.governance.pr.automerge) {
-            const prState = await prs.get(prRef);
-            prDraft = prState.draft;
-            prMergeable = prState.mergeable;
-            checkRunPRNodeId = prState.nodeId;
-          }
-          await evaluateAutomerge({
-            prs,
-            ref: prRef,
-            config: repoConfig.governance.pr.automerge,
-            trustedReviewers: repoConfig.governance.pr.trustedReviewers,
-            nodeId: checkRunPRNodeId,
-            currentLabels,
-            headSha,
-            draft: prDraft,
-            mergeable: prMergeable,
-            log: context.log,
-            graphql: context.octokit,
-          });
+          let currentLabels: string[] | undefined;
+          const getCurrentLabels = async (): Promise<string[]> => {
+            currentLabels ??= await prs.getLabels({ owner, repo, prNumber: pr.number });
+            return currentLabels;
+          };
 
-          if (currentLabels.some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
+          if (shouldEvaluateMergeAutomation) {
+            context.log.info(
+              `Evaluating merge-readiness for PR #${pr.number} after failing check_run in ${fullName}`
+            );
+            await evaluateMergeReadiness({
+              prs,
+              ref: prRef,
+              config: repoConfig.governance.pr.mergeReady,
+              trustedReviewers: repoConfig.governance.pr.trustedReviewers,
+              currentLabels: await getCurrentLabels(),
+              headSha,
+              log: context.log,
+            });
+            // CheckRunPullRequest omits draft and mergeable; fetch from REST so the
+            // automerge gates can fire correctly on CI completion events.
+            let prDraft: boolean | undefined;
+            let prMergeable: boolean | null | undefined;
+            let checkRunPRNodeId: string | undefined;
+            if (repoConfig.governance.pr.automerge) {
+              const prState = await prs.get(prRef);
+              prDraft = prState.draft;
+              prMergeable = prState.mergeable;
+              checkRunPRNodeId = prState.nodeId;
+            }
+            await evaluateAutomerge({
+              prs,
+              ref: prRef,
+              config: repoConfig.governance.pr.automerge,
+              trustedReviewers: repoConfig.governance.pr.trustedReviewers,
+              nodeId: checkRunPRNodeId,
+              currentLabels: await getCurrentLabels(),
+              headSha,
+              draft: prDraft,
+              mergeable: prMergeable,
+              log: context.log,
+              graphql: context.octokit,
+            });
+          }
+
+          if ((await getCurrentLabels()).some((label) => isLabelMatch(label, LABELS.SQUASH_QUEUED))) {
+            const issueLabels = (await getCurrentLabels()).map((label) => ({ name: label }));
             context.log.info(`Retrying queued squash for PR #${pr.number} after check_run in ${fullName}`);
             await retryQueuedSquash({
               octokit: context.octokit as Parameters<typeof retryQueuedSquash>[0]["octokit"],
@@ -1002,7 +1034,7 @@ export function app(probotApp: Probot): void {
               senderLogin: "hivemoot",
               verb: "squash",
               freeText: undefined,
-              issueLabels: currentLabels.map((label) => ({ name: label })),
+              issueLabels,
               isPullRequest: true,
               appId,
               log: context.log,

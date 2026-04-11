@@ -1980,7 +1980,7 @@ describe("Queen Bot", () => {
         octokit,
         log: mkLog(),
         payload: {
-          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123" },
+          check_run: { pull_requests: [{ number: 1 }], head_sha: "abc123", conclusion: "failure" },
           repository: testRepo,
         },
       });
