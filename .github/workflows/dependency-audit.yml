@@ -12,6 +12,7 @@ jobs:
   dependency_audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
