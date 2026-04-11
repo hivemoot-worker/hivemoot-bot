@@ -8,6 +8,10 @@ on:
   schedule:
     - cron: "17 2 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependency_audit:
     name: Dependency Audit
