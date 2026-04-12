@@ -10,6 +10,7 @@ import type { LanguageModel } from "ai";
 
 import type { Logger } from "../logger.js";
 import { logger as defaultLogger } from "../logger.js";
+import { formatBYOKErrorContext } from "./byok.js";
 import { repairMalformedJsonText } from "./json-repair.js";
 import { createModelFromEnv, type ModelResolutionOptions } from "./provider.js";
 import { withLLMRetry } from "./retry.js";
@@ -167,7 +168,9 @@ export class CommitMessageGenerator {
       return { success: true, message };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Commit message generation failed: ${reason}`);
+      this.logger.error(
+        `Commit message generation failed: ${reason}${formatBYOKErrorContext(error)}`
+      );
       return { success: false, reason, kind: "generation_failed" };
     }
   }

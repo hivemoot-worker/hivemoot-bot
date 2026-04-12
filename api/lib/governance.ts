@@ -18,6 +18,7 @@ import {
   ERROR_CODES,
 } from "./bot-comments.js";
 import type { IssueOperations } from "./github-client.js";
+import { formatBYOKErrorContext } from "./llm/byok.js";
 import { createModelFromEnv } from "./llm/provider.js";
 import { DiscussionSummarizer, formatVotingMessage } from "./llm/summarizer.js";
 import { logger as defaultLogger, type Logger } from "./logger.js";
@@ -260,12 +261,12 @@ export class GovernanceService {
           : undefined
       );
     } catch (error) {
-      // BYOK runtime failures (Redis outage, decryption errors) are operator-actionable —
-      // log at warn. Config-missing errors are expected noise — log at debug.
+      // BYOK runtime failures carry structured context for operator action.
       const message = error instanceof Error ? error.message : String(error);
-      const isByokRuntime = message.startsWith("BYOK ");
+      const byokCtx = formatBYOKErrorContext(error);
+      const isByokRuntime = byokCtx !== "";
       this.logger[isByokRuntime ? "warn" : "debug"](
-        `LLM model resolution failed for issue #${ref.issueNumber}: ${message}`,
+        `LLM model resolution failed for issue #${ref.issueNumber}: ${message}${byokCtx}`,
       );
       return MESSAGES.votingStart(priority);
     }

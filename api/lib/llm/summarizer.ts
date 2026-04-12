@@ -11,6 +11,7 @@ import type { LanguageModel } from "ai";
 
 import type { Logger } from "../logger.js";
 import { logger as defaultLogger } from "../logger.js";
+import { formatBYOKErrorContext } from "./byok.js";
 import { repairMalformedJsonText } from "./json-repair.js";
 import {
   SUMMARIZATION_SYSTEM_PROMPT,
@@ -138,7 +139,9 @@ export class DiscussionSummarizer {
       return { success: true, summary };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`LLM summarization failed: ${message}`);
+      this.logger.error(
+        `LLM summarization failed: ${message}${formatBYOKErrorContext(error)}`
+      );
       return { success: false, reason: message };
     }
   }

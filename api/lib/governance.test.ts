@@ -135,7 +135,10 @@ describe("GovernanceService", () => {
       const govWithLogger = new GovernanceService(mockIssues, mockLogger);
 
       vi.mocked(createModelFromEnv).mockRejectedValue(
-        new Error("BYOK Redis lookup failed with HTTP 503"),
+        Object.assign(new Error("BYOK Redis lookup failed with HTTP 503"), {
+          installationId: 42,
+          correlationId: "test-corr-id",
+        }),
       );
 
       await govWithLogger.transitionToVoting(testRef);
@@ -148,6 +151,38 @@ describe("GovernanceService", () => {
       });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining("BYOK Redis lookup failed with HTTP 503"),
+      );
+    });
+
+    it("should log warn and structured context for unsupported-provider BYOK errors", async () => {
+      const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+      const govWithLogger = new GovernanceService(mockIssues, mockLogger);
+
+      vi.mocked(createModelFromEnv).mockRejectedValue(
+        Object.assign(new Error("Unsupported BYOK provider: mistral"), {
+          installationId: 42,
+          correlationId: "test-corr-id",
+        }),
+      );
+
+      await govWithLogger.transitionToVoting(testRef);
+
+      expect(mockIssues.transition).toHaveBeenCalledWith(testRef, {
+        removeLabel: LABELS.DISCUSSION,
+        addLabel: LABELS.VOTING,
+        comment: expect.stringContaining(MESSAGES.votingStart()),
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported BYOK provider: mistral"),
+      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("installationId=42"),
+      );
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("correlationId=test-corr-id"),
+      );
+      expect(mockLogger.debug).not.toHaveBeenCalledWith(
+        expect.stringContaining("Unsupported BYOK provider"),
       );
     });
 

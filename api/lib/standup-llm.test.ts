@@ -207,7 +207,10 @@ describe("generateStandupLLMContent", () => {
     const { generateStandupLLMContent } = await import("./standup.js");
 
     vi.mocked(createModelFromEnv).mockRejectedValue(
-      new Error("BYOK Redis lookup failed with HTTP 503"),
+      Object.assign(new Error("BYOK Redis lookup failed with HTTP 503"), {
+        installationId: 42,
+        correlationId: "test-corr-id",
+      }),
     );
 
     const data: StandupData = {
@@ -225,7 +228,49 @@ describe("generateStandupLLMContent", () => {
 
     expect(result).toBeNull();
     expect(logger.error).toHaveBeenCalledWith(
-      "LLM standup generation failed: BYOK Redis lookup failed with HTTP 503"
+      expect.stringContaining(
+        "LLM standup generation failed: BYOK Redis lookup failed with HTTP 503"
+      ),
+    );
+  });
+
+  it("logs unsupported-provider BYOK errors at error level with context", async () => {
+    const { createModelFromEnv } = await import("./llm/provider.js");
+    const { logger } = await import("./logger.js");
+    const { generateStandupLLMContent } = await import("./standup.js");
+
+    vi.mocked(createModelFromEnv).mockRejectedValue(
+      Object.assign(new Error("Unsupported BYOK provider: vertex"), {
+        installationId: 7,
+        correlationId: "corr-standup-test",
+      }),
+    );
+
+    const data: StandupData = {
+      discussionPhase: [],
+      votingPhase: [],
+      extendedVoting: [],
+      readyToImplement: [],
+      implementationPRs: [],
+      repoFullName: "hivemoot/colony",
+      reportDate: "2026-02-06",
+      dayNumber: 42,
+    };
+
+    const result = await generateStandupLLMContent(data, { installationId: 7 });
+
+    expect(result).toBeNull();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("Unsupported BYOK provider: vertex"),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("installationId=7"),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining("correlationId=corr-standup-test"),
+    );
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("Unsupported BYOK provider"),
     );
   });
 });

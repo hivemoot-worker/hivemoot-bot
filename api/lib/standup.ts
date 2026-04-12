@@ -17,6 +17,7 @@ import {
   createStandupMetadata,
   generateMetadataTag,
 } from "./bot-comments.js";
+import { formatBYOKErrorContext } from "./llm/byok.js";
 import { repairMalformedJsonText } from "./llm/json-repair.js";
 import { createModelFromEnv } from "./llm/provider.js";
 import { STANDUP_SYSTEM_PROMPT, buildStandupUserPrompt } from "./llm/prompts.js";
@@ -769,8 +770,11 @@ export async function generateStandupLLMContent(
     // LLM is Layer 1 (optional) — degrade gracefully to template-only.
     // BYOK infrastructure failures are logged at error for operator visibility.
     const message = error instanceof Error ? error.message : String(error);
-    const isByokRuntime = message.startsWith("BYOK ");
-    logger[isByokRuntime ? "error" : "warn"](`LLM standup generation failed: ${message}`);
+    const byokCtx = formatBYOKErrorContext(error);
+    const isByokRuntime = byokCtx !== "";
+    logger[isByokRuntime ? "error" : "warn"](
+      `LLM standup generation failed: ${message}${byokCtx}`
+    );
     return null;
   }
 }

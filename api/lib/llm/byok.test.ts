@@ -1,7 +1,11 @@
 import { createCipheriv, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { _resetMasterKeysCache, resolveInstallationBYOKConfig } from "./byok.js";
+import {
+  _resetMasterKeysCache,
+  formatBYOKErrorContext,
+  resolveInstallationBYOKConfig,
+} from "./byok.js";
 
 type EnvelopeOverrides = Partial<{
   ciphertext: string;
@@ -188,12 +192,27 @@ describe("resolveInstallationBYOKConfig", () => {
     );
   });
 
-  it("re-throws non-abort fetch errors as-is", async () => {
+  it("wraps non-abort fetch errors with a BYOK network error", async () => {
     setRedisEnv();
     const networkError = new TypeError("Failed to fetch");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError) as unknown as typeof fetch);
 
-    await expect(resolveInstallationBYOKConfig(2)).rejects.toThrow("Failed to fetch");
+    const error = await resolveInstallationBYOKConfig(2).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("BYOK Redis network error");
+    expect((error as Error & { cause: unknown }).cause).toBe(networkError);
+  });
+
+  it("throws when Redis lookup times out via TimeoutError", async () => {
+    setRedisEnv();
+    const timeoutError = new Error("The operation was aborted due to timeout");
+    timeoutError.name = "TimeoutError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError) as unknown as typeof fetch);
+
+    await expect(resolveInstallationBYOKConfig(2)).rejects.toThrow(
+      "BYOK Redis lookup timed out after 5000ms",
+    );
   });
 
   it("sends Authorization header with Bearer token", async () => {
@@ -566,5 +585,163 @@ describe("resolveInstallationBYOKConfig", () => {
     await expect(resolveInstallationBYOKConfig(7)).rejects.toThrow(
       "Unsupported BYOK provider: mistral",
     );
+  });
+
+  describe("structured BYOK error context", () => {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    it("attaches installationId and correlationId to Redis HTTP errors", async () => {
+      setRedisEnv();
+      stubRedisResponse({}, { ok: false, status: 503 });
+
+      const error = await resolveInstallationBYOKConfig(42).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { installationId: number }).installationId).toBe(42);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+    });
+
+    it("attaches installationId and correlationId to network errors", async () => {
+      setRedisEnv();
+      const networkError = new TypeError("Failed to fetch");
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(networkError) as unknown as typeof fetch);
+
+      const error = await resolveInstallationBYOKConfig(77).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe("BYOK Redis network error");
+      expect((error as { installationId: number }).installationId).toBe(77);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+      expect((error as Error & { cause: unknown }).cause).toBe(networkError);
+    });
+
+    it("attaches installationId and correlationId to timeout errors", async () => {
+      setRedisEnv();
+      const timeoutError = new Error("The operation was aborted due to timeout");
+      timeoutError.name = "TimeoutError";
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError) as unknown as typeof fetch);
+
+      const error = await resolveInstallationBYOKConfig(88).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("timed out");
+      expect((error as { installationId: number }).installationId).toBe(88);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+    });
+
+    it("attaches installationId and correlationId to decrypt errors", async () => {
+      const masterKey = randomBytes(32);
+      setRedisEnv();
+      setMasterKeys({ v1: masterKey.toString("hex") });
+
+      const envelopeJson = buildEnvelope({ apiKey: "sk", provider: "openai" }, masterKey);
+      const envelope = JSON.parse(envelopeJson) as Record<string, unknown>;
+      envelope.tag = randomBytes(16).toString("base64");
+      stubRedisResponse({ result: JSON.stringify(envelope) });
+
+      const error = await resolveInstallationBYOKConfig(99).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe("BYOK key material could not be decrypted");
+      expect((error as { installationId: number }).installationId).toBe(99);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+      expect((error as Error & { cause: unknown }).cause).toBeInstanceOf(Error);
+    });
+
+    it("attaches installationId and correlationId to inactive status errors", async () => {
+      setRedisEnv();
+      stubRedisResponse({
+        result: JSON.stringify({
+          ciphertext: "AA==",
+          iv: "AA==",
+          tag: "AA==",
+          keyVersion: "v1",
+          status: "suspended",
+        }),
+      });
+
+      const error = await resolveInstallationBYOKConfig(11).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { installationId: number }).installationId).toBe(11);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+    });
+
+    it("attaches installationId and correlationId to provider parse errors", async () => {
+      const masterKey = randomBytes(32);
+      setRedisEnv();
+      setMasterKeys({ v1: masterKey.toString("hex") });
+      stubRedisResponse({
+        result: buildEnvelope({ apiKey: "sk", provider: "unsupported-provider" }, masterKey),
+      });
+
+      const error = await resolveInstallationBYOKConfig(55).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as { installationId: number }).installationId).toBe(55);
+      expect((error as { correlationId: string }).correlationId).toMatch(UUID_RE);
+    });
+
+    it("produces distinct correlationIds across separate calls", async () => {
+      setRedisEnv();
+      stubRedisResponse({}, { ok: false, status: 500 });
+
+      const [first, second] = await Promise.all([
+        resolveInstallationBYOKConfig(1).catch((caught: unknown) => caught),
+        resolveInstallationBYOKConfig(1).catch((caught: unknown) => caught),
+      ]);
+
+      const firstId = (first as { correlationId: string }).correlationId;
+      const secondId = (second as { correlationId: string }).correlationId;
+
+      expect(firstId).toMatch(UUID_RE);
+      expect(secondId).toMatch(UUID_RE);
+      expect(firstId).not.toBe(secondId);
+    });
+  });
+});
+
+describe("formatBYOKErrorContext", () => {
+  it("returns an empty string for plain errors", () => {
+    expect(formatBYOKErrorContext(new Error("plain error"))).toBe("");
+  });
+
+  it("returns an empty string for null and primitives", () => {
+    expect(formatBYOKErrorContext(null)).toBe("");
+    expect(formatBYOKErrorContext("string error")).toBe("");
+    expect(formatBYOKErrorContext(42)).toBe("");
+  });
+
+  it("formats both installationId and correlationId when present", () => {
+    const error = Object.assign(new Error("BYOK decrypt failed"), {
+      installationId: 42,
+      correlationId: "abc-123",
+    });
+
+    expect(formatBYOKErrorContext(error)).toBe(
+      " [installationId=42 correlationId=abc-123]",
+    );
+  });
+
+  it("formats only installationId when correlationId is absent", () => {
+    const error = Object.assign(new Error("BYOK error"), { installationId: 99 });
+
+    expect(formatBYOKErrorContext(error)).toBe(" [installationId=99]");
+  });
+
+  it("formats only correlationId when installationId is absent", () => {
+    const error = Object.assign(new Error("BYOK error"), { correlationId: "xyz-789" });
+
+    expect(formatBYOKErrorContext(error)).toBe(" [correlationId=xyz-789]");
+  });
+
+  it("ignores fields with invalid types", () => {
+    const error = Object.assign(new Error("BYOK error"), {
+      installationId: "not-a-number",
+      correlationId: 12345,
+    });
+
+    expect(formatBYOKErrorContext(error)).toBe("");
   });
 });
