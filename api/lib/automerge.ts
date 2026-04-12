@@ -17,7 +17,7 @@
  */
 
 import { minimatch } from "minimatch";
-import { LABELS, isLabelMatch } from "../config.js";
+import { LABELS } from "../config.js";
 import type { PRRef } from "./types.js";
 import type { PROperations } from "./pr-operations.js";
 import type { AutomergeConfig } from "./repo-config.js";
@@ -197,7 +197,7 @@ export async function evaluateAutomerge(
 
   // Resolve current labels (use pre-fetched or fetch)
   const labels = params.currentLabels ?? await prs.getLabels(ref);
-  const hasAutomerge = labels.some(l => isLabelMatch(l, LABELS.AUTOMERGE));
+  const hasAutomerge = labels.some((l) => l === LABELS.AUTOMERGE);
 
   // Track nodeId and headSha across steps to avoid redundant prs.get() calls.
   // Seeded from pre-fetched webhook payload values when available.

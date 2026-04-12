@@ -7,7 +7,7 @@
  */
 
 import * as yaml from "js-yaml";
-import { LABELS, REQUIRED_REPOSITORY_LABELS, SIGNATURE, isLabelMatch } from "../../config.js";
+import { LABELS, REQUIRED_REPOSITORY_LABELS, SIGNATURE } from "../../config.js";
 import { SIGNATURES, buildAlignmentComment } from "../bot-comments.js";
 import {
   createIssueOperations,
@@ -433,7 +433,7 @@ async function resolveAppBotLogin(ctx: CommandContext): Promise<string | undefin
  * Check if the issue currently has a specific label.
  */
 function hasLabel(ctx: CommandContext, label: string): boolean {
-  return ctx.issueLabels.some((l) => isLabelMatch(l.name, label));
+  return ctx.issueLabels.some((l) => l.name === label);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1887,7 +1887,7 @@ export async function autoGatherIfEligible(params: AutoGatherParams): Promise<vo
   const { octokit, owner, repo, issueNumber, installationId, issueLabels, autoGatherConfig, appId, log } = params;
 
   // Gate on discussion phase
-  const isDiscussion = issueLabels.some((l) => isLabelMatch(l.name, LABELS.DISCUSSION));
+  const isDiscussion = issueLabels.some((l) => l.name === LABELS.DISCUSSION);
   if (!isDiscussion) return;
 
   const ref: IssueRef = { owner, repo, issueNumber, installationId };

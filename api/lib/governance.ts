@@ -176,7 +176,7 @@ export class GovernanceService {
   }
 
   /**
-   * Post a voting comment on an issue that already has the phase:voting label
+   * Post a voting comment on an issue that already has the hivemoot:voting label
    * but is missing the voting comment (e.g., manual label addition).
    *
    * Idempotent — skips if a voting comment already exists. Does NOT change labels.
