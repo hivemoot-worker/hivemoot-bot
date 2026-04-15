@@ -904,6 +904,7 @@ export class PROperations {
     if (trustedReviewers.length === 0) return new Set();
 
     const trusted = new Set(trustedReviewers.map((r) => r.toLowerCase()));
+    const reviewedCurrentHead = new Set<string>();
 
     // Track each trusted reviewer's latest decisive review
     const latestReview = new Map<
@@ -929,6 +930,13 @@ export class PROperations {
         if (!review.user) continue;
         const login = review.user.login.toLowerCase();
         if (!trusted.has(login)) continue;
+
+        // Any non-pending review on the current head means the reviewer has
+        // already looked at the latest version and should not be re-requested.
+        if (review.state !== "PENDING" && review.commit_id === headSha) {
+          reviewedCurrentHead.add(login);
+        }
+
         // Only track APPROVED and CHANGES_REQUESTED; skip COMMENTED, DISMISSED, PENDING
         if (review.state !== "APPROVED" && review.state !== "CHANGES_REQUESTED") continue;
 
@@ -947,7 +955,11 @@ export class PROperations {
     // on a commit other than the current head — they blocked a prior version.
     const blocking = new Set<string>();
     for (const [login, { state, commitId }] of latestReview) {
-      if (state === "CHANGES_REQUESTED" && commitId !== headSha) {
+      if (
+        state === "CHANGES_REQUESTED" &&
+        commitId !== headSha &&
+        !reviewedCurrentHead.has(login)
+      ) {
         blocking.add(login);
       }
     }

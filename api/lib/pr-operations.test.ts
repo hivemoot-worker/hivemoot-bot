@@ -1494,6 +1494,29 @@ describe("PROperations", () => {
       expect(result).toEqual(new Set());
     });
 
+    it("should NOT include reviewer who already commented on the current head", async () => {
+      vi.mocked(mockClient.rest.pulls.listReviews).mockResolvedValue({
+        data: [
+          {
+            user: { login: "alice" },
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2024-01-10T08:00:00Z",
+            commit_id: priorSha,
+          },
+          {
+            user: { login: "alice" },
+            state: "COMMENTED",
+            submitted_at: "2024-01-10T10:00:00Z",
+            commit_id: headSha,
+          },
+        ],
+      });
+
+      const result = await prOps.getBlockingReviewers(testRef, headSha, trustedReviewers);
+
+      expect(result).toEqual(new Set());
+    });
+
     it("should only include trusted reviewers", async () => {
       vi.mocked(mockClient.rest.pulls.listReviews).mockResolvedValue({
         data: [
